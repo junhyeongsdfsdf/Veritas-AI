@@ -6,7 +6,7 @@ st.set_page_config(page_title="Veritas AI", layout="centered")
 st.title("🔍 Veritas AI: ML 페인포인트 진단")
 st.write("트랜스포머(Transformer)의 핵심 원리를 설명해보세요.")
 
-# Secrets에서 키를 가져오거나 사이드바에서 입력받음
+# Secrets 확인
 api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("Gemini API Key", type="password")
 
 if not api_key:
@@ -16,8 +16,11 @@ if not api_key:
 # AI 설정
 genai.configure(api_key=api_key)
 
-# 모델 이름을 'gemini-1.5-flash'로 변경 (가장 안정적임)
-model = genai.GenerativeModel('gemini-1.5-flash')
+# 가장 호환성이 높은 모델 이름으로 설정합니다.
+try:
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+except:
+    model = genai.GenerativeModel('gemini-pro')
 
 user_input = st.text_area("설명을 적어주세요:", height=200, placeholder="예: Self-Attention이 왜 필요한가요?")
 
@@ -27,7 +30,6 @@ if st.button("진단 시작"):
             try:
                 prompt = f"""
                 당신은 머신러닝 교육 전문가입니다. 사용자의 설명을 듣고 지식의 결함을 진단하세요.
-                내용이 머신러닝과 관련이 없다면 정중히 머신러닝 주제로 유도하세요.
                 
                 [분석 항목]
                 1. 개념의 정확성 (0-100점)
@@ -41,7 +43,7 @@ if st.button("진단 시작"):
                 st.subheader("📋 Veritas 진단 리포트")
                 st.markdown(response.text)
             except Exception as e:
-                st.error(f"진단 중 오류가 발생했습니다: {e}")
-                st.info("API 키가 유효한지, 혹은 모델 사용 권한이 있는지 확인해주세요.")
+                st.error(f"모델 연결 오류: {e}")
+                st.info("API 키가 올바른지, 혹은 Google AI Studio에서 사용 가능한 모델인지 확인해주세요.")
     else:
         st.warning("내용을 입력해주세요.")
