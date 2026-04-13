@@ -53,7 +53,32 @@ KNOWLEDGE_TREE = {
 class VeritasEngine:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
+        # 모델 호환성 문제 해결: 환경별 자동 fallback
+        candidate_models = [
+            "models/gemini-1.5-flash",
+            "gemini-1.5-flash",
+            "models/gemini-pro",
+            "gemini-pro",
+        ]
+
+        self.model = None
+        for model_name in candidate_models:
+            try:
+                self.model = genai.GenerativeModel(model_name)
+                break
+            except Exception:
+                continue
+
+        if self.model is None:
+            try:
+                available = [
+                    m.name for m in genai.list_models()
+                    if "generateContent" in getattr(m, "supported_generation_methods", [])
+                ]
+                if available:
+                    self.model = genai.GenerativeModel(available[0])
+            except Exception:
+                pass
 
     def call(self, prompt: str, retries: int = 2) -> str:
         for attempt in range(retries):
