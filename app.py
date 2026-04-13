@@ -28,24 +28,57 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================
-# 2) KNOWLEDGE TREE
+# 2) ADAPTIVE DIAGNOSTIC INTELLIGENCE
 # =============================
-KNOWLEDGE_TREE = {
-    "근의공식": [
-        "1. 이차방정식 ax²+bx+c=0 형태를 이해하나요?",
-        "2. b²-4ac에서 곱셈 순서를 이해하나요?",
-        "3. 음수와 양수의 곱셈을 계산할 수 있나요?",
-        "4. 제곱근 계산 원리를 이해하나요?",
-        "5. 최종 분수 계산까지 스스로 할 수 있나요?"
-    ],
-    "재귀함수": [
-        "1. 함수의 기본 구조를 이해하나요?",
-        "2. 종료 조건의 필요성을 이해하나요?",
-        "3. 함수가 자기 자신을 호출하는 원리를 아나요?",
-        "4. 호출 스택 개념을 이해하나요?",
-        "5. 작은 문제로 분할하는 사고를 할 수 있나요?"
+# 범용 학습 진단 차원 (과목/언어/실무 모두 대응)
+UNIVERSAL_DIAGNOSTIC_DIMENSIONS = [
+    "핵심 개념을 자신의 말로 설명",
+    "구성 요소를 구분",
+    "동작 원리 또는 문맥 이해",
+    "실제 예시에 적용",
+    "헷갈리는 예외/유사 개념과 비교",
+]
+
+LANGUAGE_KEYWORDS = ["영어", "중국어", "일본어", "한국어", "grammar", "vocabulary", "speaking"]
+
+
+def infer_domain(topic: str) -> str:
+    topic = topic.lower()
+    if any(k in topic for k in ["공식", "함수", "방정식", "미분", "적분", "확률"]):
+        return "math"
+    if any(k in topic for k in ["c", "java", "python", "재귀", "포인터", "sql", "알고리즘"]):
+        return "programming"
+    if any(k in topic for k in ["물리", "화학", "양자", "생물"]):
+        return "science"
+    return "general"
+
+
+def infer_input_type(user_input: str) -> str:
+    """어떤 형태의 입력이 와도 먼저 타입을 추론"""
+    text = user_input.strip()
+    if any(sym in text for sym in ["def ", "for ", "while ", "if ", "{", "}", ";"]):
+        return "code"
+    if len(text.split()) >= 4 and any(ch in text for ch in ["?", ".", ","]):
+        return "sentence"
+    if any(k in text.lower() for k in ["error", "bug", "왜", "안돼", "막혀"]):
+        return "problem"
+    return "concept"
+
+
+def build_fallback_questions(topic: str) -> List[str]:
+    """입력 타입을 미리 가정하지 않는 범용 질문 생성"""
+    dims = [
+        "무엇을 이해하지 못하는지 스스로 설명",
+        "어느 부분에서 막히는지 단계 구분",
+        "실제 예시나 문제에 적용",
+        "헷갈리는 다른 개념/표현과 비교",
+        "다음에 스스로 풀 수 있을 정도로 재구성",
     ]
-}
+
+    return [
+        f"{i+1}. '{topic}'에 대해 {dim}할 수 있나요?"
+        for i, dim in enumerate(dims)
+    ]
 
 # =============================
 # 3) ENGINE
@@ -200,16 +233,21 @@ if st.session_state.stage == "ready":
 
     if st.button("빠른 진단 시작"):
         if topic:
-            # 1순위: 고정 지식트리
-            if topic in KNOWLEDGE_TREE:
-                questions = KNOWLEDGE_TREE[topic]
-            else:
-                with st.spinner("질문 생성 중..."):
-                    result = engine.call(f"""
-당신은 교육 전문가입니다.
-주제: {topic}
+            # 주제 적응형 질문 생성
+            with st.spinner("주제 구조를 분석하여 맞춤 질문 생성 중..."):
+                result = engine.call(f"""
+당신은 학습 진단 AI입니다.
+사용자 입력: {topic}
 
-하위 개념을 추적할 수 있는 Yes/No 질문 5개를 반드시 아래 형식으로 작성하세요.
+중요:
+- 입력은 특정 과목이나 개념에 한정되지 않는다.
+- 코드, 문장, 외국어 표현, 문제상황, 실수 패턴, 업무 고민, 창작 아이디어 등 광범위할 수 있다.
+- 먼저 입력 타입을 추론하라: 개념 / 코드 / 문장 / 오류 / 문제상황 / 응용
+- 사용자가 어디서 사고가 멈췄는지 추론 가능한 하위 사고 단계 5개를 만든다.
+- 너무 특정 분야에 종속되지 말고, 이해 → 구분 → 적용 → 비교 → 재구성의 인간 학습 흐름을 기반으로 질문을 만든다.
+- Yes/No로 답할 수 있어야 한다.
+
+출력 형식:
 1. 질문
 2. 질문
 3. 질문
@@ -218,15 +256,9 @@ if st.session_state.stage == "ready":
 """)
                 questions = extract_questions(result)
 
-                # fallback
-                if not questions:
-                    questions = [
-                        "1. 이 개념의 정의를 설명할 수 있나요?",
-                        "2. 공식의 각 항의 의미를 이해하나요?",
-                        "3. 곱셈/덧셈 연산 과정을 설명할 수 있나요?",
-                        "4. 왜 이런 계산이 필요한지 아나요?",
-                        "5. 비슷한 문제를 혼자 풀 수 있나요?"
-                    ]
+                # AI 실패 시에도 주제 기반 적응형 fallback
+                if not questions or result == "[LOCAL_FALLBACK]":
+                    questions = build_fallback_questions(topic)
 
             st.session_state.data["topic"] = topic
             st.session_state.data["questions"] = questions
