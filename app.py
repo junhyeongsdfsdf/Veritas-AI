@@ -8,10 +8,11 @@ st.markdown("""
     <style>
     .stApp { background-color: #fcfcfc; }
     .diag-card { padding: 20px; border-radius: 12px; border: 1px solid #e0e0e0; background-color: white; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .stButton>button { background-color: #1a73e8; color: white; border-radius: 8px; height: 3.5rem; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# [2. API 모델 자동 최적화 연결]
+# [2. API 연결부: 실시간 모델 리스트 동적 추출]
 api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("System Verification Key", type="password")
 
 if not api_key:
@@ -21,26 +22,43 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 @st.cache_resource
-def get_working_engine():
-    """사용자 키로 사용 가능한 최적의 모델을 자동 탐색합니다."""
-    # 시도해볼 모델 리스트 (최신순)
-    model_candidates = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'models/gemini-1.5-flash']
-    for m_name in model_candidates:
-        try:
-            m = genai.GenerativeModel(m_name)
-            # 실제로 작동하는지 1토큰만 테스트 호출
-            m.generate_content("test", generation_config={"max_output_tokens": 1})
-            return m
-        except Exception:
-            continue
+def get_best_available_model():
+    """사용자 API 키가 현재 허용하는 모델 중 최적의 것을 자동 선택합니다."""
+    try:
+        # 내 API 키가 쓸 수 있는 모든 모델 목록을 가져옴
+        available_models = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        # 선호 순서: 1.5-flash -> 1.5-pro -> 1.0-pro -> 리스트 중 첫 번째
+        priority = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+        
+        for target in priority:
+            # 모델 명칭에 target 문구가 포함된 것을 탐색 (models/ 포함 여부 대응)
+            for m in available_models:
+                if target in m:
+                    # 실제 작동 테스트
+                    test_model = genai.GenerativeModel(m)
+                    test_model.generate_content("ping", generation_config={"max_output_tokens": 1})
+                    return m
+        
+        # 우선순위에 없으면 리스트 중 첫 번째 모델 선택
+        if available_models:
+            return available_models[0]
+            
+    except Exception as e:
+        st.error(f"API 연결에 문제가 발생했습니다: {str(e)}")
+        return None
     return None
 
-engine = get_working_engine()
+model_name = get_best_available_model()
 
-if engine is None:
-    st.error("❌ 구글 서버에서 적합한 AI 모델을 찾을 수 없습니다.")
-    st.warning("API 키가 'Google AI Studio'에서 발급받은 유효한 키인지, 혹은 결제/제한 설정이 되어있는지 확인이 필요합니다.")
+if not model_name:
+    st.error("❌ 사용 가능한 Gemini 모델을 찾을 수 없습니다. API 키의 유효성을 다시 확인해주세요.")
     st.stop()
+
+engine = genai.GenerativeModel(model_name)
 
 # [3. 진단 프로세스 관리]
 if 'process' not in st.session_state: st.session_state.process = 'init'
@@ -54,7 +72,7 @@ if st.session_state.process == 'init':
     
     if st.button("진단 엔진 가동", use_container_width=True):
         if subject_topic:
-            with st.spinner("지식의 계층 구조를 해체하는 중..."):
+            with st.spinner(f"[{model_name}] 엔진을 사용하여 지식 구조를 해체 중..."):
                 try:
                     init_prompt = f"""
                     학습자가 '{subject_topic}'에 대해 이해가 안 된다고 합니다.
@@ -76,17 +94,16 @@ elif st.session_state.process == 'diagnostic_test':
     st.subheader(f"🚩 '{st.session_state.topic}' 진단 프로세스")
     
     with st.form("diagnosis_form"):
-        # 질문 파싱 로직 강화
         lines = st.session_state.raw_res.split('\n')
-        questions = [l.strip() for l in lines if l.strip() and (l.strip()[0].isdigit()) and '.' in l]
+        questions = [l.strip() for l in lines if l.strip() and (l.strip()[0].isdigit()) and '.' in l or ')' in l]
         
         user_responses = []
         for i, q in enumerate(questions[:5]):
             st.markdown(f"<div class='diag-card'><b>{q}</b>", unsafe_allow_html=True)
-            ans = st.radio("상태 체크", ["이해하고 있음(Yes)", "잘 모르겠음(No)"], key=f"ans_{i}", horizontal=True)
+            ans = st.radio("상태 체크", ["알고 있음(Yes)", "잘 모르겠음(No)"], key=f"ans_{i}", horizontal=True)
             reason = ""
             if "No" in ans:
-                reason = st.text_input("어느 부분이 모호한가요?", key=f"reason_{i}", placeholder="예: 공식은 알겠는데 적용을 못 하겠어요.")
+                reason = st.text_input("어느 부분이 모호한가요? (간단히 서술)", key=f"reason_{i}")
             user_responses.append({"question": q, "status": ans, "reason": reason})
             st.markdown("</div>", unsafe_allow_html=True)
         
@@ -103,7 +120,7 @@ elif st.session_state.process == 'result_modeling':
         no_data = [d for d in st.session_state.user_responses if "No" in d['status']]
         
         analysis_prompt = f"""
-        당신은 전 과목 통합 교육 진단 전문가입니다.
+        당신은 교육 진단 전문가입니다.
         주제: {st.session_state.topic}
         취약점 데이터: {no_data}
         
