@@ -1,97 +1,105 @@
 import streamlit as st
 import google.generativeai as genai
 
-# [1. 시스템 설정]
-st.set_page_config(page_title="Veritas AI | 지식 결손 진단기", layout="centered")
+# [1. 시스템 환경 설정]
+st.set_page_config(page_title="Veritas AI: Universal Diagnostician", layout="centered")
 
-# [2. 보안 및 모델 연결]
-api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("System API Key", type="password")
+# 전문 진단 도구 느낌의 UI 스타일링
+st.markdown("""
+    <style>
+    .stApp { background-color: #fcfcfc; }
+    .diag-card { padding: 20px; border-radius: 12px; border: 1px solid #e0e0e0; background-color: white; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .highlight { color: #1a73e8; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# [2. API 모델 연결]
+api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("System Verification Key", type="password")
 if api_key:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
 else:
-    st.warning("API Key를 입력해주세요.")
+    st.info("💡 시스템 작동을 위해 API Key가 필요합니다.")
     st.stop()
 
-# 세션 상태 관리 (진단 단계 유지)
-if 'stage' not in st.session_state: st.session_state.stage = 'start'
-if 'topic' not in st.session_state: st.session_state.topic = ""
-if 'definition' not in st.session_state: st.session_state.definition = ""
-if 'questions' not in st.session_state: st.session_state.questions = []
+# [3. 진단 프로세스 관리]
+if 'process' not in st.session_state: st.session_state.process = 'init'
 
-# --- STAGE 1: 주제 정의 및 기초 설명 ---
-if st.session_state.stage == 'start':
-    st.title("🔍 Veritas AI: 지식 결손 진단")
-    st.write("막히는 개념을 입력하면, 기초 연산부터 어디가 문제인지 역추적합니다.")
+# --- PHASE 1: 주제 분석 및 지식 위계 분해 ---
+if st.session_state.process == 'init':
+    st.title("🔍 Veritas AI: 교육 결손 정밀 진단")
+    st.write("학습 중 막힌 부분의 **'진정한 원인'**을 찾기 위해 지식의 뿌리를 추적합니다.")
     
-    topic = st.text_input("지금 이해가 안 되는 개념은 무엇인가요?", placeholder="예: 근의 공식")
+    subject_topic = st.text_input("어떤 개념에서 막히셨나요?", placeholder="예: 양자역학의 이중슬릿 실험, 파이썬의 재귀함수, 경제의 한계 효용 등")
     
-    if st.button("진단 시작"):
-        if topic:
-            with st.spinner("개념의 정의를 정리하고 진단 문항을 생성 중..."):
-                # 1. 정의 생성
-                def_res = model.generate_content(f"'{topic}'의 정의와 핵심 공식을 아주 핵심만 짧게 설명해줘.")
-                st.session_state.definition = def_res.text
+    if st.button("진단 엔진 가동", use_container_width=True):
+        if subject_topic:
+            with st.spinner("지식의 계층 구조를 해체하는 중..."):
+                # AI에게 해당 주제를 이해하기 위한 '선행 지식 위계'를 생성하게 함
+                init_prompt = f"""
+                학습자가 '{subject_topic}'에 대해 이해가 안 된다고 합니다.
+                1. 이 주제의 핵심 정의를 2문장 이내로 정리하세요.
+                2. 이 주제를 이해하기 위해 반드시 사전에 알고 있어야 하는 '하위/기초 개념' 5개를 추출하세요.
+                3. 그 5개 개념을 바탕으로 학습자의 기초 체력을 검증할 수 있는 Yes/No 질문을 5개 생성하세요.
+                질문은 번호를 붙여서 출력하세요.
+                """
+                res = model.generate_content(init_prompt)
                 
-                # 2. 기초 역진단 질문 5개 생성 (Yes/No용)
-                q_prompt = f"사용자가 '{topic}'을 모른다고 합니다. 이 개념을 풀기 위해 반드시 알아야 하는 '더 기초적인 연산이나 원리' 5가지를 Yes/No 질문으로 만드세요. 번호를 붙여서 작성하세요."
-                q_res = model.generate_content(q_prompt)
-                
-                st.session_state.questions = [q.strip() for q in q_res.text.split('\n') if q.strip() and q[0].isdigit()]
-                st.session_state.topic = topic
-                st.session_state.stage = 'drill'
+                # 데이터 파싱 및 세션 저장
+                st.session_state.raw_res = res.text
+                st.session_state.topic = subject_topic
+                st.session_state.process = 'diagnostic_test'
                 st.rerun()
 
-# --- STAGE 2: 5가지 역진단 질문 (Yes/No + 사유 수집) ---
-elif st.session_state.stage == 'drill':
-    st.subheader(f"📖 {st.session_state.topic}의 핵심 정의")
-    st.info(st.session_state.definition)
+# --- PHASE 2: 5단계 역추적 진단 (사유 수집) ---
+elif st.session_state.process == 'diagnostic_test':
+    st.subheader(f"🚩 '{st.session_state.topic}' 진단 프로세스")
+    st.write("현재 막힌 지점의 토대가 되는 기초 원리들을 점검합니다.")
     st.markdown("---")
-    st.subheader("🎯 기초 역량 진단 (5-Step)")
-    st.write("이 공식의 토대가 되는 아래 기초 원리들을 정말 알고 있는지 체크해보세요.")
 
     with st.form("diagnosis_form"):
-        user_data = []
-        for i, q in enumerate(st.session_state.questions):
-            st.markdown(f"**Q{i+1}. {q}**")
-            ans = st.radio("상태", ["알고 있음(Yes)", "모름/헷갈림(No)"], key=f"ans_{i}", horizontal=True)
+        # AI 응답에서 질문 부분만 추출 (간단한 파싱 로직)
+        questions = [line for line in st.session_state.raw_res.split('\n') if line.strip() and line[0].isdigit()]
+        
+        user_responses = []
+        for i, q in enumerate(questions[:5]):
+            st.markdown(f"<div class='diag-card'><b>{q}</b>", unsafe_allow_html=True)
+            ans = st.radio("상태 체크", ["이해하고 있음(Yes)", "잘 모르겠음(No)"], key=f"ans_{i}", horizontal=True)
             reason = ""
             if "No" in ans:
-                reason = st.text_area("어느 부분이 왜 이해가 안 가는지 짧게 적어주세요:", key=f"reason_{i}", placeholder="예: 제곱근 안의 숫자가 음수일 때 어떻게 하는지 모르겠어요.")
-            user_data.append({"q": q, "status": ans, "reason": reason})
+                reason = st.text_input("어떤 부분이 모호한지 짧게 적어주세요 (예: 용어가 낯설다, 원리가 이해 안 된다 등)", key=f"reason_{i}")
+            user_responses.append({"question": q, "status": ans, "reason": reason})
+            st.markdown("</div>", unsafe_allow_html=True)
         
-        if st.form_submit_button("최종 진단 리포트 생성"):
-            st.session_state.user_data = user_data
-            st.session_state.stage = 'result'
+        if st.form_submit_button("최종 결손 지점 분석"):
+            st.session_state.user_responses = user_responses
+            st.session_state.process = 'result_modeling'
             st.rerun()
 
-# --- STAGE 3: 최종 페인포인트 분석 (Verdict) ---
-elif st.session_state.stage == 'result':
-    st.title("📋 지식 결손 정밀 진단서")
+# --- PHASE 3: 최종 페인포인트 모델링 결과 ---
+elif st.session_state.process == 'result_modeling':
+    st.title("📋 지식 결손 모델링 리포트")
     
-    with st.spinner("당신의 학습 구멍(Pain-point)을 모델링 중..."):
-        no_items = [d for d in st.session_state.user_data if "No" in d['status']]
+    with st.spinner("응답 패턴을 기반으로 학습 결손 지점을 모델링 중..."):
+        no_data = [d for d in st.session_state.user_responses if "No" in d['status']]
         
-        # AI가 'No'라고 한 부분들을 종합 분석하여 진짜 원인을 찾음
         analysis_prompt = f"""
-        당신은 학습자의 '인지적 구멍'을 찾는 전문가입니다.
+        당신은 전 과목 통합 교육 진단 전문가입니다.
         주제: {st.session_state.topic}
+        학습자의 취약점 데이터: {no_data}
         
-        [사용자 응답 데이터]
-        {no_items}
-        
-        사용자가 'No'라고 답한 기초 원리들과 그 사유를 종합하여, 
-        이 사용자가 '{st.session_state.topic}'을 이해하지 못하는 **진짜 근본적인 결손 지점(Pain-point)**을 진단하세요.
-        
-        진단 결과에는 다음이 포함되어야 합니다:
-        1. 당신의 고장 난 지점 (정확한 위치 선정)
-        2. 왜 이곳이 고장 났는가에 대한 논리적 분석
-        3. 이 구멍을 메우기 위해 당장 복습해야 할 '과거의 연산' 한 가지
+        위 데이터를 바탕으로 학습자가 현재 주제를 이해하지 못하는 '진정한 페인포인트(Root Cause)'를 도출하세요.
+        - 단순한 지식 나열이 아니라, '어느 단계의 논리'가 무너졌는지를 정확히 진단해야 합니다.
+        - 결과 리포트 형식:
+          1. 발견된 결손 지점 (어느 시대/어느 단계/어느 연산인가)
+          2. 인지적 오류 분석 (사용자가 왜 이 부분을 어려워하는지 사유를 바탕으로 분석)
+          3. 학습 우선순위 제언 (현재 진도를 멈추고 당장 되돌아가야 할 구체적인 지점)
         """
         
         final_report = model.generate_content(analysis_prompt)
-        st.markdown(f'<div style="padding:20px; border-radius:10px; border-left:5px solid #ff4b4b; background-color:#fff5f5;">{final_report.text}</div>', unsafe_allow_html=True)
+        
+        st.markdown(f"<div class='diag-card' style='border-left: 5px solid #1a73e8;'>{final_report.text}</div>", unsafe_allow_html=True)
 
-    if st.button("다시 진단하기"):
-        st.session_state.stage = 'start'
+    if st.button("새로운 주제 진단하기"):
+        st.session_state.process = 'init'
         st.rerun()
