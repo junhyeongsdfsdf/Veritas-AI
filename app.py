@@ -14,14 +14,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 st.set_page_config(
-    page_title="Veritas AI | Fast Diagnostic",
+    page_title="Veritas AI | Smart Diagnostic",
     page_icon="🔍",
     layout="centered",
 )
 
-# =============================
-# 2) UI
-# =============================
 st.markdown("""
 <style>
 .stApp { background-color: #0d1117; color: #c9d1d9; }
@@ -31,24 +28,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================
-# 3) FAST SAFE ENGINE
+# 2) KNOWLEDGE TREE
+# =============================
+KNOWLEDGE_TREE = {
+    "근의공식": [
+        "1. 이차방정식 ax²+bx+c=0 형태를 이해하나요?",
+        "2. b²-4ac에서 곱셈 순서를 이해하나요?",
+        "3. 음수와 양수의 곱셈을 계산할 수 있나요?",
+        "4. 제곱근 계산 원리를 이해하나요?",
+        "5. 최종 분수 계산까지 스스로 할 수 있나요?"
+    ],
+    "재귀함수": [
+        "1. 함수의 기본 구조를 이해하나요?",
+        "2. 종료 조건의 필요성을 이해하나요?",
+        "3. 함수가 자기 자신을 호출하는 원리를 아나요?",
+        "4. 호출 스택 개념을 이해하나요?",
+        "5. 작은 문제로 분할하는 사고를 할 수 있나요?"
+    ]
+}
+
+# =============================
+# 3) ENGINE
 # =============================
 class VeritasEngine:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        # 가장 빠르고 안정적인 모델 하나만 사용
-        self.model_name = "gemini-1.5-flash"
-        self.model = genai.GenerativeModel(self.model_name)
+        self.model = genai.GenerativeModel("gemini-1.5-flash")
 
     def call(self, prompt: str, retries: int = 2) -> str:
-        """무한 대기 방지: 최대 2번만 재시도"""
         for attempt in range(retries):
             try:
                 response = self.model.generate_content(
                     prompt,
                     generation_config={
-                        "temperature": 0.4,
-                        "max_output_tokens": 700,
+                        "temperature": 0.3,
+                        "max_output_tokens": 600,
                     },
                     request_options={"timeout": 20},
                 )
@@ -102,27 +116,40 @@ engine = VeritasEngine(api_key)
 # =============================
 if st.session_state.stage == "ready":
     st.markdown("<div class='main-title'>Veritas AI</div>", unsafe_allow_html=True)
-    topic = st.text_input("학습 주제", placeholder="예: 재귀함수")
+    topic = st.text_input("학습 주제", placeholder="예: 근의공식")
 
     if st.button("빠른 진단 시작"):
         if topic:
-            with st.spinner("질문 생성 중... (보통 3~10초)"):
-                result = engine.call(f"""
+            # 1순위: 고정 지식트리
+            if topic in KNOWLEDGE_TREE:
+                questions = KNOWLEDGE_TREE[topic]
+            else:
+                with st.spinner("질문 생성 중..."):
+                    result = engine.call(f"""
 당신은 교육 전문가입니다.
 주제: {topic}
 
-반드시 아래 형식으로 출력하세요.
+하위 개념을 추적할 수 있는 Yes/No 질문 5개를 반드시 아래 형식으로 작성하세요.
 1. 질문
 2. 질문
 3. 질문
 4. 질문
 5. 질문
-
-각 질문은 반드시 Yes/No로 답할 수 있게 작성하세요.
 """)
+                questions = extract_questions(result)
+
+                # fallback
+                if not questions:
+                    questions = [
+                        "1. 이 개념의 정의를 설명할 수 있나요?",
+                        "2. 공식의 각 항의 의미를 이해하나요?",
+                        "3. 곱셈/덧셈 연산 과정을 설명할 수 있나요?",
+                        "4. 왜 이런 계산이 필요한지 아나요?",
+                        "5. 비슷한 문제를 혼자 풀 수 있나요?"
+                    ]
 
             st.session_state.data["topic"] = topic
-            st.session_state.data["questions"] = extract_questions(result)
+            st.session_state.data["questions"] = questions
             st.session_state.stage = "testing"
             st.rerun()
 
@@ -165,12 +192,12 @@ elif st.session_state.stage == "analysis":
     if not weak_points:
         st.success("기초 개념이 충분히 잡혀 있습니다.")
     else:
-        with st.spinner("결손 지점 분석 중... (10초 내외)"):
+        with st.spinner("결손 지점 분석 중..."):
             report = engine.call(f"""
 주제: {st.session_state.data['topic']}
 약한 개념: {weak_points}
 
-다음 형식으로 간결하게 분석:
+다음 형식으로 분석:
 1. 결손 지점
 2. 왜 어려운지
 3. 지금 복습할 기초 개념
