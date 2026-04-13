@@ -265,7 +265,12 @@ engine = VeritasEngine(api_key)
 # 6) READY
 # =============================
 if st.session_state.stage == "ready":
-    st.markdown("<div class='main-title'>Veritas AI</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='position: relative; display: inline-block; width: 100%; text-align: center;'>
+        <div class='main-title'>Veritas AI</div>
+        <div style='position: absolute; right: 28%; bottom: -8px; font-size: 0.8rem; color: #8b949e;'>by Jun</div>
+    </div>
+""", unsafe_allow_html=True)
     topic = st.text_input("학습 주제", placeholder="예: 근의공식")
 
     if st.button("빠른 진단 시작"):
