@@ -1,21 +1,19 @@
 import streamlit as st
 import google.generativeai as genai
 import time
-from google.api_core import exceptions
 
-# [1. 시스템 환경 설정] 
-st.set_page_config(page_title="Veritas AI | Diagnosis Engine", layout="centered")
+# [1. 시스템 설정]
+st.set_page_config(page_title="Veritas AI | 교육 결손 진단", layout="centered")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #0e1117; color: white; }
-    .diag-card { padding: 25px; border-radius: 12px; border: 1px solid #30363d; background-color: #161b22; margin-bottom: 20px; }
-    .stButton>button { background-color: #238636; color: white; border-radius: 8px; height: 3.5rem; font-weight: bold; width: 100%; border: none; }
-    .stButton>button:hover { background-color: #2ea043; }
+    .stApp { background-color: #f8f9fa; }
+    .diag-card { padding: 20px; border-radius: 12px; border: 1px solid #e0e0e0; background-color: white; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+    .stButton>button { background-color: #1a73e8; color: white; border-radius: 8px; height: 3.5rem; font-weight: bold; width: 100%; border: none; }
     </style>
     """, unsafe_allow_html=True)
 
-# [2. 지능형 엔진 로더: 429/404 에러 원천 차단]
+# [2. API 연결: 가장 안전한 모델 고정]
 api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("System API Key", type="password")
 
 if not api_key:
@@ -24,112 +22,87 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-def call_ai_robustly(model, prompt, max_retries=3):
-    """구글 서버 과부하(429) 시 지능적으로 대기 후 재시도합니다."""
-    for attempt in range(max_retries):
-        try:
-            return model.generate_content(prompt)
-        except exceptions.ResourceExhausted:
-            wait = (attempt + 1) * 10 
-            st.warning(f"⚠️ 구글 서버 과부하 감지. {wait}초 후 자동 재시도합니다... (시도 {attempt+1}/{max_retries})")
-            time.sleep(wait)
-        except Exception as e:
-            if "not_found" in str(e).lower() or "404" in str(e):
-                st.error("❌ 요청한 모델을 찾을 수 없습니다. 가장 안정적인 모델로 전환합니다.")
-                return None
-            time.sleep(2)
-    return None
-
 @st.cache_resource
-def load_engine():
-    # 가장 표준적이고 할당량이 넉넉한 'gemini-1.5-flash'를 우선 시도합니다.
-    for m_name in ['gemini-1.5-flash', 'gemini-pro']:
-        try:
-            m = genai.GenerativeModel(m_name)
-            m.generate_content("ping", generation_config={"max_output_tokens": 1})
-            return m, m_name
-        except:
-            continue
-    return None, None
+def get_engine():
+    # 무료 티어에서 가장 넉넉한 'gemini-1.5-flash'를 사용합니다.
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        # 연결 확인용 테스트
+        model.generate_content("test", generation_config={"max_output_tokens": 1})
+        return model
+    except Exception as e:
+        st.error(f"⚠️ 엔진 연결 실패: {e}")
+        return None
 
-engine, active_model = load_engine()
+engine = get_engine()
+if not engine: st.stop()
 
-if not engine:
-    st.error("❌ 현재 API 키로 구글 서버에 접속할 수 없습니다. 할당량이 완전히 소진되었거나 키가 잘못되었습니다.")
-    st.stop()
-
-# [3. 진단 스테이지 관리]
+# [3. 진단 프로세스 관리]
 if 'stage' not in st.session_state: st.session_state.stage = 'init'
 
-# --- PHASE 1: 주제 해체 및 질문 생성 ---
+# --- PHASE 1: 주제 분석 및 질문 생성 ---
 if st.session_state.stage == 'init':
-    st.title("🔍 Veritas AI")
-    st.subheader("지식의 뿌리를 추적하여 결손 지점을 진단합니다.")
+    st.title("🔍 Veritas AI: 정밀 결손 진단")
+    st.write("막힌 개념을 입력하면, 기초 연산부터 어디가 문제인지 역추적합니다.")
     
-    topic = st.text_input("진단할 개념을 입력하세요:", placeholder="예: 근의 공식, 재귀함수, 양자역학 등")
+    subject = st.text_input("진단할 개념을 입력하세요:", placeholder="예: 근의 공식, 재귀함수, 양자역학 등")
     
-    if st.button("전문 진단 엔진 가동"):
-        if topic:
-            with st.spinner(f"[{active_model}] 엔진이 지식 계층을 분석 중..."):
-                prompt = f"""
-                당신은 교육 진단 전문가입니다. 주제: '{topic}'
-                1. 이 개념의 정의와 핵심 원리를 2문장으로 요약하세요.
-                2. 이 개념을 이해하기 위해 필요한 '더 기초적인 하위 지식' 5가지를 검증할 Yes/No 질문을 만드세요.
-                질문 형식: '1. 질문내용'
-                """
-                res = call_ai_robustly(engine, prompt)
-                if res:
+    if st.button("진단 엔진 가동"):
+        if subject:
+            with st.spinner("지식의 뿌리를 추적 중... (잠시만 기다려주세요)"):
+                try:
+                    prompt = f"사용자가 '{subject}'을 모른다고 합니다. 이 개념을 이해하기 위해 반드시 알아야 할 하위 기초 지식 5가지를 찾고, 이를 검증할 구체적인 Yes/No 질문 5개를 번호를 붙여 생성해줘."
+                    res = engine.generate_content(prompt)
                     st.session_state.raw_data = res.text
-                    st.session_state.topic = topic
-                    st.session_state.stage = 'testing'
+                    st.session_state.topic = subject
+                    st.session_state.stage = 'test'
                     st.rerun()
+                except Exception as e:
+                    if "429" in str(e):
+                        st.error("🚨 구글 서버의 요청 한도를 초과했습니다. 약 1분 후 다시 시도해주세요.")
+                    else:
+                        st.error(f"에러 발생: {r'https://ai.google.dev/gemini-api/docs/rate-limits' if '429' in str(e) else e}")
 
-# --- PHASE 2: 5단계 기초 역량 테스트 (사유 수집) ---
-elif st.session_state.stage == 'testing':
-    st.subheader(f"🚩 '{st.session_state.topic}' 역진단 시뮬레이션")
-    st.markdown("---")
+# --- PHASE 2: 5단계 역추적 진단 ---
+elif st.session_state.stage == 'test':
+    st.subheader(f"🚩 '{st.session_state.topic}' 역진단 테스트")
     
     with st.form("diag_form"):
         lines = st.session_state.raw_data.split('\n')
         qs = [l.strip() for l in lines if l.strip() and l.strip()[0].isdigit()]
         
-        user_data = []
+        results = []
         for i, q in enumerate(qs[:5]):
             st.markdown(f"<div class='diag-card'><b>{q}</b>", unsafe_allow_html=True)
             ans = st.radio("상태", ["알고 있음(Yes)", "모름/모호함(No)"], key=f"q_{i}", horizontal=True)
             reason = ""
             if "No" in ans:
-                reason = st.text_input("어떤 지점에서 사고가 막히나요?", key=f"t_{i}", placeholder="구체적인 이유를 적어주세요.")
-            user_data.append({"q": q, "status": ans, "reason": reason})
+                reason = st.text_input("어느 지점이 헷갈리나요? (짧게 입력)", key=f"t_{i}")
+            results.append({"q": q, "status": ans, "reason": reason})
             st.markdown("</div>", unsafe_allow_html=True)
             
-        if st.form_submit_button("최종 페인포인트 분석"):
-            st.session_state.user_data = user_data
+        if st.form_submit_button("최종 페인포인트 모델링"):
+            st.session_state.results = results
             st.session_state.stage = 'report'
             st.rerun()
 
-# --- PHASE 3: 최종 지식 결손 모델링 리포트 ---
+# --- PHASE 3: 최종 결과 리포트 ---
 elif st.session_state.stage == 'report':
     st.title("📋 지식 결손 정밀 진단서")
     
-    with st.spinner("응답 패턴을 기반으로 당신의 '진짜 페인포인트'를 도출 중..."):
-        no_items = [d for d in st.session_state.user_data if "No" in d['status']]
+    with st.spinner("인지 구조를 분석 중..."):
+        no_data = [r for r in st.session_state.results if "No" in r['status']]
         
-        if not no_items:
-            st.success("해당 주제에 대한 지식 체계가 완벽합니다.")
+        if not no_data:
+            st.success("해당 주제에 대한 지식 체계가 탄탄합니다.")
         else:
-            final_prompt = f"""
-            학습자가 '{st.session_state.topic}'에 대해 다음 이유들로 'No'라고 답했습니다: {no_items}. 
-            이 응답들을 종합 모델링하여 사용자가 현재 벽에 부딪힌 '진정한 페인포인트'를 진단하세요.
-            1. 발견된 결손 지점: (어느 단계의 논리가 무너졌는가)
-            2. 인지적 오류 분석: (왜 어려워하는지에 대한 사유 기반 분석)
-            3. 학습 제언: (당장 되돌아가야 할 구체적인 지점)
-            """
-            report = call_ai_robustly(engine, final_prompt)
-            if report:
-                st.markdown(f"<div class='diag-card' style='border-left: 8px solid #238636;'>{report.text}</div>", unsafe_allow_html=True)
+            try:
+                final_prompt = f"학습자가 '{st.session_state.topic}'에 대해 다음 이유들로 'No'라고 답했습니다: {no_data}. 이 정보를 바탕으로 사용자의 '진정한 페인포인트'와 '당장 복습해야 할 기초 지점'을 분석해줘."
+                report = engine.generate_content(final_prompt)
+                st.markdown(f"<div class='diag-card' style='border-left: 8px solid #1a73e8;'>{report.text}</div>", unsafe_allow_html=True)
+            except Exception as e:
+                st.error("리포트 생성 중 에러가 발생했습니다. 잠시 후 다시 시도해 주세요.")
                 
     if st.button("새로운 진단 시작"):
         st.session_state.stage = 'init'
         st.rerun()
-        
