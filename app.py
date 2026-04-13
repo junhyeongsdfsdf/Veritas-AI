@@ -103,12 +103,19 @@ def extract_learning_facets(user_input: str) -> List[str]:
 
 
 def build_fallback_questions(topic: str) -> List[str]:
-    """입력의 단면이 아니라 전체 학습면을 보는 질문 생성"""
+    """반드시 Yes/No로 답할 수 있는 맞춤형 질문 생성"""
     facets = extract_learning_facets(topic)
-    return [
-        f"{i+1}. 현재 입력에서 '{facet}'를 점검할 수 있나요?"
-        for i, facet in enumerate(facets)
+    question_styles = [
+        "{idx}. 현재 입력에서 '{facet}'가 막힌 핵심 지점이라고 스스로 판단되나요?",
+        "{idx}. 방금 문제를 다시 보면 '{facet}'를 명확히 설명할 수 있나요?",
+        "{idx}. 같은 유형이 다시 나오면 '{facet}' 기준으로 바로 해결 가능하나요?",
+        "{idx}. 비슷하지만 다른 사례에서도 '{facet}'를 그대로 적용할 수 있나요?",
+        "{idx}. 다음에는 혼자서도 '{facet}' 실수를 예방할 수 있나요?",
     ]
+    questions = []
+    for i, facet in enumerate(facets[:5]):
+        questions.append(question_styles[i].format(idx=i+1, facet=facet))
+    return questions
 
 # =============================
 # 3) ENGINE
@@ -277,7 +284,8 @@ if st.session_state.stage == "ready":
 - 입력의 '전체 학습면'을 분해하라: 의미, 구조, 원리, 적용, 비교/재구성.
 - 지금 당장 보이는 단면이 아니라 사용자가 다음 단계에서 실패할 가능성이 큰 지점까지 예측하라.
 - 질문마다 서로 다른 사고 단계를 겨냥하라.
-- Yes/No로 답할 수 있어야 한다.
+- 모든 질문은 반드시 Yes/No로 명확하게 답할 수 있는 폐쇄형 질문으로 만든다.
+- 각 질문은 서로 다른 사고 단계(이해/구조/적용/비교/예방)를 겨냥한다.
 
 출력 형식:
 1. 질문
