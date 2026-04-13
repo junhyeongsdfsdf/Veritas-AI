@@ -51,60 +51,115 @@ KNOWLEDGE_TREE = {
 # 3) ENGINE
 # =============================
 class VeritasEngine:
+    """환경별 Gemini 호환 + 최종 실패 시 로컬 분석 fallback"""
+
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        # 모델 호환성 문제 해결: 환경별 자동 fallback
-        candidate_models = [
+        self.model = None
+        self.model_name = None
+        self._initialize_model()
+
+    def _initialize_model(self):
+        candidates = [
             "models/gemini-1.5-flash",
             "gemini-1.5-flash",
             "models/gemini-pro",
             "gemini-pro",
         ]
 
-        self.model = None
-        for model_name in candidate_models:
+        # 실제 generate_content 테스트까지 통과한 모델만 채택
+        for model_name in candidates:
             try:
-                self.model = genai.GenerativeModel(model_name)
-                break
+                model = genai.GenerativeModel(model_name)
+                _ = model.generate_content(
+                    "ping",
+                    generation_config={"max_output_tokens": 1},
+                    request_options={"timeout": 10},
+                )
+                self.model = model
+                self.model_name = model_name
+                return
             except Exception:
                 continue
 
-        if self.model is None:
-            try:
-                available = [
-                    m.name for m in genai.list_models()
-                    if "generateContent" in getattr(m, "supported_generation_methods", [])
-                ]
-                if available:
-                    self.model = genai.GenerativeModel(available[0])
-            except Exception:
-                pass
+        # 동적 탐색
+        try:
+            for m in genai.list_models():
+                methods = getattr(m, "supported_generation_methods", [])
+                if "generateContent" not in methods:
+                    continue
+                try:
+                    model = genai.GenerativeModel(m.name)
+                    _ = model.generate_content(
+                        "ping",
+                        generation_config={"max_output_tokens": 1},
+                        request_options={"timeout": 10},
+                    )
+                    self.model = model
+                    self.model_name = m.name
+                    return
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
     def call(self, prompt: str, retries: int = 2) -> str:
+        if not self.model:
+            return "[LOCAL_FALLBACK]"
+
         for attempt in range(retries):
             try:
                 response = self.model.generate_content(
                     prompt,
                     generation_config={
                         "temperature": 0.3,
-                        "max_output_tokens": 600,
+                        "max_output_tokens": 700,
                     },
                     request_options={"timeout": 20},
                 )
                 return response.text.strip()
 
-            except exceptions.ResourceExhausted:
-                if attempt == retries - 1:
-                    return "API 사용량 제한입니다. 잠시 후 다시 시도하세요."
-                time.sleep(3)
-
             except Exception as e:
-                logger.exception("LLM Error")
+                logger.warning(f"LLM retry {attempt+1} failed: {e}")
                 if attempt == retries - 1:
-                    return f"호출 실패: {str(e)}"
+                    return "[LOCAL_FALLBACK]"
                 time.sleep(2)
 
-        return "알 수 없는 오류"
+        return "[LOCAL_FALLBACK]"
+
+
+def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
+    """AI가 죽어도 반드시 결과를 내는 규칙 기반 분석기"""
+    weak_text = " ".join(
+        [f"{x['question']} {x.get('reason', '')}" for x in weak_points]
+    )
+
+    concepts = []
+
+    if "곱셈" in weak_text:
+        concepts.append("- 곱셈 순서 및 분배법칙")
+    if "음수" in weak_text:
+        concepts.append("- 음수 × 양수 / 음수 × 음수 규칙")
+    if "제곱근" in weak_text:
+        concepts.append("- 제곱근과 루트 계산")
+    if "분수" in weak_text:
+        concepts.append("- 분수 통분 및 약분")
+    if "재귀" in topic:
+        concepts.append("- 종료 조건과 호출 스택")
+
+    if not concepts:
+        concepts = ["- 개념 정의", "- 연산 순서", "- 유사 문제 반복"]
+
+    return f"""
+1. 결손 지점
+{topic}의 하위 연산 또는 핵심 개념 단계에서 사고가 끊겼습니다.
+
+2. 왜 어려운지
+사용자의 No 응답을 보면 세부 연산 규칙 또는 개념 연결이 불안정합니다.
+
+3. 지금 복습할 기초 개념
+{chr(10).join(concepts)}
+""".strip()
 
 
 def extract_questions(raw: str) -> List[str]:
@@ -227,6 +282,14 @@ elif st.session_state.stage == "analysis":
 2. 왜 어려운지
 3. 지금 복습할 기초 개념
 """)
+
+        # AI 실패 시에도 무조건 분석 결과 출력
+        if report == "[LOCAL_FALLBACK]":
+            report = local_root_cause_analysis(
+                st.session_state.data['topic'],
+                weak_points,
+            )
+
         st.write(report)
 
     if st.button("새 진단"):
