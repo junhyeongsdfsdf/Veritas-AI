@@ -300,103 +300,59 @@ elif st.session_state.stage == "testing":
 # =============================
 # ANALYSIS PAGE (FINAL FIX)
 # =============================
-elif st.session_state.stage == "analysis":
-    st.markdown(
-        "<div class='result-title'>진단 결과 😋</div>",
-        unsafe_allow_html=True
-    )
+def build_wrong_rate_report(topic: str, responses: List[Dict]) -> Dict:
+    total = len(responses)
+    wrongs = [x for x in responses if x["answer"] == "No"]
 
-    weak_points = [
-        x for x in st.session_state.data["responses"]
-        if x["answer"] == "No"
-    ]
+    wrong_count = len(wrongs)
+    wrong_rate = int((wrong_count / total) * 100) if total else 0
 
-    topic = st.session_state.data["topic"]
+    # 오답률 기반 학습 상태 진단
+    if wrong_rate == 0:
+        level = "완전 이해 단계"
+        summary = (
+            f"{topic}의 핵심 구조와 적용 흐름이 안정적으로 잡혀 있습니다. "
+            "현재는 개념 부족보다 실전 문제량을 늘려 정확도를 높이는 단계입니다."
+        )
 
-    if not weak_points:
-        st.success("현재 핵심 개념 이해도와 응용력이 매우 안정적입니다.")
+    elif wrong_rate <= 20:
+        level = "부분 보완 단계"
+        summary = (
+            f"{topic}의 전체 개념은 이해하고 있으나 일부 예외 상황이나 "
+            "적용 문제에서 흔들릴 가능성이 있습니다."
+        )
+
+    elif wrong_rate <= 40:
+        level = "핵심 연결 약화 단계"
+        summary = (
+            f"{topic}의 기본 개념은 알고 있지만 개념 간 연결과 문제 적용력이 약합니다. "
+            "오답노트 중심 복습이 가장 효과적인 구간입니다."
+        )
+
+    elif wrong_rate <= 60:
+        level = "응용 취약 단계"
+        summary = (
+            f"{topic}에서 구조 이해보다 암기 위주로 접근했을 가능성이 큽니다. "
+            "실전 응용 문제에서 오답률이 높게 유지될 수 있습니다."
+        )
+
+    elif wrong_rate <= 80:
+        level = "기초 재정비 단계"
+        summary = (
+            f"{topic}의 핵심 원리부터 다시 정리해야 합니다. "
+            "현재 상태에서 응용으로 가면 계속 비슷한 실수를 반복할 확률이 높습니다."
+        )
+
     else:
-        missed_concepts = []
-        explanations = []
-        extra_topics = []
+        level = "처음부터 재학습 단계"
+        summary = (
+            f"{topic}에 대한 개념 구조가 아직 충분히 형성되지 않았습니다. "
+            "처음부터 핵심 원리 → 예제 → 응용 순으로 다시 학습하는 것이 좋습니다."
+        )
 
-        for item in weak_points:
-            q = item["question"]
-
-            if "반례" in q:
-                missed_concepts.append(
-                    f"{topic}의 반례 및 예외 상황 판단"
-                )
-                explanations.append(
-                    f"{topic}를 일반 문제에서는 적용할 수 있지만, "
-                    f"예외 조건이 붙었을 때 기존 규칙을 그대로 적용하려는 경향이 있습니다. "
-                    f"즉 공식의 적용 범위와 적용 불가능한 상황을 구분하는 힘이 약합니다. "
-                    f"시험에서는 이 부분이 함정 선지로 자주 출제됩니다."
-                )
-                extra_topics += [
-                    f"{topic} 반례 문제",
-                    f"{topic} 예외 조건",
-                    f"{topic} 함정 유형"
-                ]
-
-            elif "조건" in q or "단계" in q:
-                missed_concepts.append(
-                    f"{topic} 단계별 조건 변화 추론"
-                )
-                explanations.append(
-                    f"{topic}의 기본 절차는 이해했지만, "
-                    f"중간 단계의 조건이 바뀌었을 때 결과가 어떻게 달라지는지 "
-                    f"논리적으로 추적하는 힘이 약합니다. "
-                    f"특히 응용 문제에서 단계 순서와 영향 관계를 복습해야 합니다."
-                )
-                extra_topics += [
-                    f"{topic} 단계 추론",
-                    f"{topic} 응용 문제",
-                    f"{topic} 흐름 연결"
-                ]
-
-            else:
-                missed_concepts.append(
-                    f"{topic} 핵심 원리와 응용 연결"
-                )
-                explanations.append(
-                    f"{topic}의 정의는 기억하고 있지만 "
-                    f"왜 그런 결과가 나오는지 원리 수준 설명이 약합니다. "
-                    f"현재는 공식 기억형 이해에 가까워 "
-                    f"문제 조건이 조금만 바뀌어도 오답률이 높아질 수 있습니다. "
-                    f"원리 → 구조 → 응용 순서로 다시 연결 복습이 필요합니다."
-                )
-                extra_topics += [
-                    f"{topic} 핵심 원리",
-                    f"{topic} 응용 확장",
-                    f"{topic} 오답 패턴"
-                ]
-
-        # -------------------------
-        # 놓친 개념 카드
-        # -------------------------
-        with st.container():
-            st.markdown("## 놓친 개념")
-            for c in sorted(set(missed_concepts)):
-                st.info(c)
-
-        # -------------------------
-        # 개념 설명 카드
-        # -------------------------
-        with st.container():
-            st.markdown("## 개념 설명")
-            for e in sorted(set(explanations)):
-                st.write(f"• {e}")
-
-        # -------------------------
-        # 추가로 필요한 부분 (링크)
-        # -------------------------
-        with st.container():
-            st.markdown("## 추가로 필요한 부분")
-            for extra in sorted(set(extra_topics)):
-                link = f"https://chat.openai.com/?q={quote(extra)}"
-                st.markdown(f"- [{extra}]({link})")
-
-    if st.button("새 진단"):
-        st.session_state.clear()
-        st.rerun()
+    return {
+        "wrong_count": wrong_count,
+        "wrong_rate": wrong_rate,
+        "level": level,
+        "summary": summary,
+    }
