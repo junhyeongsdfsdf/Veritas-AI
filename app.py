@@ -332,7 +332,7 @@ elif st.session_state.stage == "testing":
 # 9) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.subheader("최종 진단 리포트")
+    st.subheader("핵심 부족 포인트")
 
     weak_points = [
         x for x in st.session_state.data["responses"]
@@ -340,51 +340,49 @@ elif st.session_state.stage == "analysis":
     ]
 
     if not weak_points:
-        st.success("전체 학습 구조가 안정적입니다.")
+        st.success("현재 주제의 핵심 구조는 충분히 이해하고 있습니다.")
     else:
-        with st.spinner("응답 패턴을 분석하여 결손 지점을 추론 중입니다..."):
-            report = None
-
-            try:
-                analysis_prompt = f"""
-당신은 학습 결손 진단 전문가입니다.
+        try:
+            prompt = f"""
+당신은 쪽집개 강사형 학습 진단 AI입니다.
 
 주제:
 {st.session_state.data['topic']}
 
-사용자가 어려워한 부분:
+사용자가 어려워한 질문:
 {weak_points}
 
-아래 형식으로 깊이 있게 분석하세요.
+규칙:
+- 길게 설명하지 말 것
+- 스크롤 적게 핵심만 출력
+- 모르는 핵심 개념 3개
+- 바로 체크해야 할 포인트 3개
+- 불필요한 문장 금지
 
-## 1. 결손 지점
-- 사용자가 정확히 어떤 사고 단계에서 막혔는지
+출력 형식:
 
-## 2. 왜 어려운지
-- 사용자의 No 응답 이유 기반 인지적 원인 분석
+### 놓친 핵심 개념
+- ...
+- ...
+- ...
 
-## 3. 놓친 핵심 개념
-- 지금 반드시 복습해야 할 세부 개념
-
-## 4. 바로 해야 할 학습 액션
-- 다음 30분 동안 무엇을 공부하면 되는지
+### 지금 바로 체크
+- ...
+- ...
+- ...
 """
+            response = engine.client.responses.create(
+                model=engine.model_name,
+                input=prompt
+            )
 
-                response = engine.client.responses.create(
-                    model=engine.model_name,
-                    input=analysis_prompt,
-                )
+            report = response.output_text.strip()
 
-                report = response.output_text.strip()
-
-            except Exception as e:
-                logger.warning(f"최종 분석 실패 → fallback 사용: {e}")
-
-            if not report:
-                report = local_root_cause_analysis(
-                    st.session_state.data["topic"],
-                    weak_points
-                )
+        except Exception:
+            report = local_root_cause_analysis(
+                st.session_state.data["topic"],
+                weak_points
+            )
 
         st.markdown(report)
 
