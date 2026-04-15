@@ -253,28 +253,39 @@ if st.session_state.stage == "ready":
         if topic:
             progress_text = st.empty()
             progress_bar = st.progress(0)
-
             progress_text.markdown("### 열심히 탐색중!! 🤗")
 
-            for i in range(60):
-                time.sleep(1)
-                progress_bar.progress((i + 1) * 100 // 60)
+            start_time = time.time()
+            questions = []
 
-            try:
-                questions = engine.generate_questions(topic)
-                if len(questions) < 5:
-                    questions = build_fallback_questions(topic)
-            except Exception as e:
-                logger.warning(f"GPT 실패: {e}")
+            while time.time() - start_time < 60:
+                elapsed = time.time() - start_time
+                progress = int((elapsed / 60) * 100)
+                progress_bar.progress(progress)
+
+                try:
+                    questions = engine.generate_questions(topic)
+
+                    # ✅ 찾았으면 즉시 종료
+                    if len(questions) >= 5:
+                        break
+
+                except Exception as e:
+                    logger.warning(f"탐색 중 오류: {e}")
+
+                time.sleep(2)
+
+            # ✅ 끝까지 못 찾았을 때만 fallback
+            if len(questions) < 5:
                 questions = build_fallback_questions(topic)
 
+            progress_bar.progress(100)
             progress_text.markdown("### 탐색 완료! ✨")
 
             st.session_state.data["topic"] = topic
             st.session_state.data["questions"] = questions
             st.session_state.stage = "testing"
             st.rerun()
-
 
 # =============================
 # 8) TESTING
