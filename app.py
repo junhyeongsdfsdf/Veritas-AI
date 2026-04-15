@@ -149,8 +149,8 @@ class VeritasEngine:
 {topic}
 
 규칙:
-- 사용자의 입력을 그대로 반복 금지
-- 입력 종류를 먼저 추론 (개념 / 코드 / 언어 / 오류 / 문제상황)
+- 입력 문장을 그대로 반복하지 말 것
+- 입력 타입 추론: 개념 / 코드 / 언어 / 오류 / 문제상황
 - 서로 완전히 다른 사고 단계의 질문 5개 생성
 - 이해 / 구조 / 원리 / 응용 / 예방 단계 포함
 - 모든 질문은 Yes/No로 답할 수 있어야 함
@@ -190,6 +190,7 @@ def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
         concepts.append("- 문장 구조 및 문맥")
     if "개념" in weak_text:
         concepts.append("- 핵심 개념 정의")
+
     if not concepts:
         concepts = [
             "- 핵심 정의 복습",
@@ -266,7 +267,7 @@ if st.session_state.stage == "ready":
                 try:
                     questions = engine.generate_questions(topic)
 
-                    # ✅ 찾았으면 즉시 종료
+                    # ✅ 찾으면 즉시 이동
                     if len(questions) >= 5:
                         break
 
@@ -275,7 +276,7 @@ if st.session_state.stage == "ready":
 
                 time.sleep(2)
 
-            # ✅ 끝까지 못 찾았을 때만 fallback
+            # ✅ 60초 동안 못 찾았을 때만 fallback
             if len(questions) < 5:
                 questions = build_fallback_questions(topic)
 
@@ -286,6 +287,7 @@ if st.session_state.stage == "ready":
             st.session_state.data["questions"] = questions
             st.session_state.stage = "testing"
             st.rerun()
+
 
 # =============================
 # 8) TESTING
@@ -340,10 +342,50 @@ elif st.session_state.stage == "analysis":
     if not weak_points:
         st.success("전체 학습 구조가 안정적입니다.")
     else:
-        report = local_root_cause_analysis(
-            st.session_state.data["topic"],
-            weak_points
-        )
+        with st.spinner("응답 패턴을 분석하여 결손 지점을 추론 중입니다..."):
+            report = None
+
+            try:
+                analysis_prompt = f"""
+당신은 학습 결손 진단 전문가입니다.
+
+주제:
+{st.session_state.data['topic']}
+
+사용자가 어려워한 부분:
+{weak_points}
+
+아래 형식으로 깊이 있게 분석하세요.
+
+## 1. 결손 지점
+- 사용자가 정확히 어떤 사고 단계에서 막혔는지
+
+## 2. 왜 어려운지
+- 사용자의 No 응답 이유 기반 인지적 원인 분석
+
+## 3. 놓친 핵심 개념
+- 지금 반드시 복습해야 할 세부 개념
+
+## 4. 바로 해야 할 학습 액션
+- 다음 30분 동안 무엇을 공부하면 되는지
+"""
+
+                response = engine.client.responses.create(
+                    model=engine.model_name,
+                    input=analysis_prompt,
+                )
+
+                report = response.output_text.strip()
+
+            except Exception as e:
+                logger.warning(f"최종 분석 실패 → fallback 사용: {e}")
+
+            if not report:
+                report = local_root_cause_analysis(
+                    st.session_state.data["topic"],
+                    weak_points
+                )
+
         st.markdown(report)
 
     if st.button("새 진단"):
