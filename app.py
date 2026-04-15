@@ -136,7 +136,7 @@ class VeritasEngine:
     def generate_questions(self, topic: str) -> List[str]:
         # [사용자 요청] 질문 수준 상향 및 라벨/별표(**) 제거 지시
         prompt = f"""
-        당신은 교육심리 전문가이자 명강사입니다.
+        당신은 교육심리 전문가이자 어느 곳에서도 뒤쳐지 않는 1타 명강사입니다.
         주제: {topic}
 
         미션:
