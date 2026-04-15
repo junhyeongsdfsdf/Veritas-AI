@@ -59,20 +59,27 @@ st.markdown("""
     font-weight: 700;
     margin-bottom: 0.7rem;
 }
+.link-card {
+    padding: 0.9rem;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    margin-top: 0.7rem;
+    background: #0f1720;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
 # =============================
-# QUIZ FALLBACK ENGINE
+# FALLBACK QUIZ
 # =============================
 def build_fallback_questions(topic: str) -> List[str]:
     return [
-        f"1. {topic}의 핵심 원리는 반대 상황에서도 동일하게 유지된다. (Yes/No)",
-        f"2. {topic}의 첫 단계가 잘못되어도 최종 결과는 정확할 수 있다. (Yes/No)",
-        f"3. {topic}는 새로운 문제 유형에서도 같은 방식으로 적용 가능하다. (Yes/No)",
-        f"4. {topic}와 유사 개념은 항상 같은 결과를 만든다. (Yes/No)",
-        f"5. {topic}의 예외 상황도 기본 원리만으로 해결 가능하다. (Yes/No)",
+        f"1. {topic}의 기본 원리는 예외 상황에서도 그대로 유지된다. (Yes/No)",
+        f"2. {topic}의 첫 단계가 틀려도 최종 결과는 맞을 수 있다. (Yes/No)",
+        f"3. {topic}는 새로운 문제 유형에도 같은 방식으로 적용된다. (Yes/No)",
+        f"4. {topic}와 비슷한 개념은 항상 같은 결과를 만든다. (Yes/No)",
+        f"5. {topic}는 반례가 존재하지 않는다. (Yes/No)",
     ]
 
 
@@ -109,7 +116,7 @@ class VeritasEngine:
 
 
 # =============================
-# SMART DIAGNOSIS REPORT
+# SMART DIAGNOSIS
 # =============================
 def build_smart_diagnosis_from_no(
     weak_points: List[Dict],
@@ -120,26 +127,53 @@ def build_smart_diagnosis_from_no(
     extras = []
 
     for item in weak_points:
-        concept = f"{topic}의 핵심 원리와 예외 처리"
+        q = item["question"]
 
-        explanation = (
-            f"{topic} 관련 퀴즈에서 오답이 발생한 것은 "
-            f"핵심 원리 자체보다도 예외 조건, 반례, 응용 조건에서 "
-            f"개념 연결이 약하다는 뜻입니다. "
-            f"특히 왜 이 원리가 성립하는지와 "
-            f"언제 성립하지 않는지를 함께 이해해야 "
-            f"실전 문제에서 흔들리지 않습니다."
-        )
+        if "예외" in q:
+            concept = f"{topic}의 예외 조건 해석"
+            explanation = (
+                f"{topic}의 핵심 원리는 어느 정도 이해하고 있지만, "
+                f"조건이 달라졌을 때 원리가 언제 유지되고 깨지는지 판단하는 "
+                f"예외 해석 능력이 약합니다. "
+                f"실전 문제는 대부분 예외 상황에서 난이도가 올라가므로 "
+                f"이 부분을 보완하면 정답률이 크게 향상됩니다."
+            )
+            extra = [
+                f"{topic} 예외 상황",
+                f"{topic} 조건 변화 응용",
+                f"{topic} 실전 예외 문제"
+            ]
 
-        extra_topics = [
-            f"{topic} 예외 상황",
-            f"{topic} 반례 분석",
-            f"{topic} 실전 응용 문제"
-        ]
+        elif "반례" in q:
+            concept = f"{topic}의 반례 구분 능력"
+            explanation = (
+                f"비슷해 보이는 상황에서도 {topic}가 적용되지 않는 "
+                f"반례를 구분하는 힘이 약합니다. "
+                f"이 부분이 부족하면 시험과 실무에서 함정형 문제에 "
+                f"쉽게 흔들릴 수 있습니다."
+            )
+            extra = [
+                f"{topic} 반례 분석",
+                f"{topic} 함정 문제",
+                f"{topic} 오답 패턴"
+            ]
+
+        else:
+            concept = f"{topic}의 핵심 원리 연결"
+            explanation = (
+                f"{topic}를 부분적으로는 이해하고 있지만 "
+                f"원리 → 구조 → 응용으로 이어지는 연결 고리가 약합니다. "
+                f"왜 이런 결과가 나오는지 설명형 사고를 강화해야 합니다."
+            )
+            extra = [
+                f"{topic} 핵심 원리",
+                f"{topic} 구조 복습",
+                f"{topic} 실전 응용"
+            ]
 
         missed.append(f"• {concept}")
         explanations.append(f"• {explanation}")
-        extras.extend(extra_topics)
+        extras.extend(extra)
 
     return {
         "놓친개념": "<br>".join(sorted(set(missed))),
@@ -177,7 +211,7 @@ engine = VeritasEngine(api_key)
 # =============================
 if st.session_state.stage == "ready":
     st.markdown("""
-    <div style='position: relative; display: inline-block; width:100%; text-align:center;'>
+    <div style='text-align:center;'>
         <div class='main-title'>Veritas AI</div>
         <div style='font-size:0.9rem; color:#8b949e;'>by Jun</div>
     </div>
@@ -208,12 +242,11 @@ if st.session_state.stage == "ready":
 사용자 주제: {topic}
 
 역할:
-사용자의 취약 개념을 찾기 위한 OX 퀴즈형 질문 5개 생성
+취약 개념을 잡아내는 OX 퀴즈 5개 생성
 
 규칙:
-- Yes/No로 정답 판별 가능한 퀴즈
+- Yes/No 정답 판별형
 - 자기평가 금지
-- 서로 다른 사고 단계
 - 예외 / 반례 / 응용 포함
 - 번호 1~5
 """)
@@ -293,7 +326,6 @@ elif st.session_state.stage == "analysis":
             st.session_state.data["topic"]
         )
 
-        # 놓친개념 + 개념설명
         for category in ["놓친개념", "개념설명"]:
             st.markdown(f"""
             <div class='category-card'>
@@ -302,7 +334,7 @@ elif st.session_state.stage == "analysis":
             </div>
             """, unsafe_allow_html=True)
 
-        # 추가 학습 링크
+        # 추가 학습 카드
         st.markdown("""
         <div class='category-card'>
             <div class='category-title'>추가로 필요한 부분</div>
@@ -311,7 +343,13 @@ elif st.session_state.stage == "analysis":
 
         for extra in result["추가로 필요한 부분"]:
             link = f"https://chat.openai.com/?q={quote(extra)}"
-            st.markdown(f"- [{extra}]({link})")
+            st.markdown(f"""
+            <div class='link-card'>
+                <a href="{link}" target="_blank" style="color:#c9d1d9; text-decoration:none;">
+                    {extra}
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
 
     if st.button("새 진단"):
         st.session_state.clear()
