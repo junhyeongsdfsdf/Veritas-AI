@@ -336,22 +336,22 @@ elif st.session_state.stage == "analysis":
 
         # 추가 학습 카드
         # 추가 학습 통합 카드
-extra_links_html = ""
-
-for extra in result["추가로 필요한 부분"]:
-    link = f"https://chat.openai.com/?q={quote(extra)}"
-    extra_links_html += f"""
-    <div style='margin-top:0.7rem;'>
-        <a href="{link}" target="_blank"
-           style="color:#c9d1d9; text-decoration:none;">
-           • {extra}
-        </a>
-    </div>
-    """
-
-st.markdown(f"""
-<div class='category-card'>
-    <div class='category-title'>추가로 필요한 부분</div>
-    {extra_links_html}
-</div>
-""", unsafe_allow_html=True)
+            extra_links_html = ""
+            
+            for extra in result["추가로 필요한 부분"]:
+                link = f"https://chat.openai.com/?q={quote(extra)}"
+                extra_links_html += f"""
+                <div style='margin-top:0.7rem;'>
+                    <a href="{link}" target="_blank"
+                       style="color:#c9d1d9; text-decoration:none;">
+                       • {extra}
+                    </a>
+                </div>
+                """
+            
+            st.markdown(f"""
+            <div class='category-card'>
+                <div class='category-title'>추가로 필요한 부분</div>
+                {extra_links_html}
+            </div>
+            """, unsafe_allow_html=True)
