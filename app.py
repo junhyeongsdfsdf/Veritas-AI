@@ -1,10 +1,18 @@
-import random
+import re
+import time
+import logging
 from typing import List, Dict
+
 import streamlit as st
+import google.generativeai as genai
+from google.api_core import exceptions
 
 # =============================
-# PAGE CONFIG
+# 1) CONFIG
 # =============================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 st.set_page_config(
     page_title="Veritas AI | Smart Diagnostic",
     page_icon="🔍",
@@ -14,147 +22,288 @@ st.set_page_config(
 st.markdown("""
 <style>
 .stApp { background-color: #0d1117; color: #c9d1d9; }
-.main-title {
-    color: #58a6ff;
-    font-size: 2.7rem;
-    font-weight: 800;
-    text-align: center;
-    margin-bottom: 1rem;
-}
-.diag-card {
-    padding: 1rem;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    margin-bottom: 1rem;
-    background: #161b22;
-}
+.main-title { color: #58a6ff; font-size: 2.5rem; font-weight: 800; text-align: center; }
+.diag-card { padding: 1.2rem; border: 1px solid #30363d; border-radius: 12px; margin-bottom: 1rem; background:#161b22; }
 </style>
 """, unsafe_allow_html=True)
 
 # =============================
-# QUESTION ENGINE
+# 2) ADAPTIVE DIAGNOSTIC INTELLIGENCE
 # =============================
-QUESTION_LENSES = {
-    "understanding": [
-        "지금 떠올린 내용을 다른 사람에게 다시 설명할 수 있나요?",
-        "핵심 의미와 주변 정보를 구분해서 말할 수 있나요?",
-    ],
-    "structure": [
-        "구성 요소가 어떤 순서로 연결되는지 알고 있나요?",
-        "중간 단계가 빠졌을 때 어디가 비는지 찾을 수 있나요?",
-    ],
-    "application": [
-        "처음 보는 상황에도 같은 방식으로 적용할 수 있나요?",
-        "실전 문제에 바로 활용할 수 있나요?",
-    ],
-    "comparison": [
-        "비슷한 개념과의 차이를 설명할 수 있나요?",
-        "유사한 실수와 현재 문제를 구분할 수 있나요?",
-    ],
-    "recovery": [
-        "막혔을 때 어디부터 다시 점검해야 할지 알고 있나요?",
-        "다음에 같은 실수를 예방할 수 있나요?",
-    ],
-}
+# 범용 학습 진단 차원 (과목/언어/실무 모두 대응)
+UNIVERSAL_DIAGNOSTIC_DIMENSIONS = [
+    "핵심 개념을 자신의 말로 설명",
+    "구성 요소를 구분",
+    "동작 원리 또는 문맥 이해",
+    "실제 예시에 적용",
+    "헷갈리는 예외/유사 개념과 비교",
+]
+
+LANGUAGE_KEYWORDS = ["영어", "중국어", "일본어", "한국어", "grammar", "vocabulary", "speaking"]
 
 
-def build_brain_like_questions(user_input: str) -> List[str]:
-    """
-    사용자의 입력을 그대로 반복하지 않고
-    항상 다른 사고 단계에서 5가지 Yes/No 질문 생성
-    """
-    ordered_lenses = [
-        "understanding",
-        "structure",
-        "application",
-        "comparison",
-        "recovery",
+def infer_domain(topic: str) -> str:
+    topic = topic.lower()
+    if any(k in topic for k in ["공식", "함수", "방정식", "미분", "적분", "확률"]):
+        return "math"
+    if any(k in topic for k in ["c", "java", "python", "재귀", "포인터", "sql", "알고리즘"]):
+        return "programming"
+    if any(k in topic for k in ["물리", "화학", "양자", "생물"]):
+        return "science"
+    return "general"
+
+
+def infer_input_type(user_input: str) -> str:
+    """어떤 형태의 입력이 와도 먼저 타입을 추론"""
+    text = user_input.strip()
+    if any(sym in text for sym in ["def ", "for ", "while ", "if ", "{", "}", ";"]):
+        return "code"
+    if len(text.split()) >= 4 and any(ch in text for ch in ["?", ".", ","]):
+        return "sentence"
+    if any(k in text.lower() for k in ["error", "bug", "왜", "안돼", "막혀"]):
+        return "problem"
+    return "concept"
+
+
+def extract_learning_facets(user_input: str) -> List[str]:
+    """입력 문장을 그대로 반복하지 않고 학습의 여러 면을 분해"""
+    input_type = infer_input_type(user_input)
+
+    facet_map = {
+        "concept": [
+            "핵심 의미를 이해하는지",
+            "구성 요소를 구분하는지",
+            "원리가 왜 그렇게 되는지",
+            "새로운 예시에 적용 가능한지",
+            "비슷한 개념과 비교 가능한지",
+        ],
+        "code": [
+            "입력/출력 흐름을 추적하는지",
+            "조건과 반복의 기준을 이해하는지",
+            "에러 원인을 재현 가능한지",
+            "유사 코드에 수정 적용 가능한지",
+            "더 나은 구조로 다시 작성 가능한지",
+        ],
+        "sentence": [
+            "문장의 핵심 의미를 이해하는지",
+            "구조나 어순을 구분하는지",
+            "다른 문맥에 응용 가능한지",
+            "비슷한 표현과 차이를 아는지",
+            "직접 새로운 문장을 만들 수 있는지",
+        ],
+        "problem": [
+            "문제의 원인을 정의하는지",
+            "어느 단계에서 막히는지 아는지",
+            "해결 방법을 시도해봤는지",
+            "다른 상황에도 적용 가능한지",
+            "같은 문제를 다시 예방 가능한지",
+        ],
+    }
+    return facet_map.get(input_type, UNIVERSAL_DIAGNOSTIC_DIMENSIONS)
+
+
+def build_fallback_questions(topic: str) -> List[str]:
+    """반드시 Yes/No로 답할 수 있는 맞춤형 질문 생성"""
+    facets = extract_learning_facets(topic)
+    question_styles = [
+        "{idx}. 현재 입력에서 '{facet}'가 막힌 핵심 지점이라고 스스로 판단되나요?",
+        "{idx}. 방금 문제를 다시 보면 '{facet}'를 명확히 설명할 수 있나요?",
+        "{idx}. 같은 유형이 다시 나오면 '{facet}' 기준으로 바로 해결 가능하나요?",
+        "{idx}. 비슷하지만 다른 사례에서도 '{facet}'를 그대로 적용할 수 있나요?",
+        "{idx}. 다음에는 혼자서도 '{facet}' 실수를 예방할 수 있나요?",
     ]
-
     questions = []
-    for i, lens in enumerate(ordered_lenses, 1):
-        q = random.choice(QUESTION_LENSES[lens])
-        questions.append(f"{i}. {q}")
-
+    for i, facet in enumerate(facets[:5]):
+        questions.append(question_styles[i].format(idx=i+1, facet=facet))
     return questions
 
+# =============================
+# 3) ENGINE
+# =============================
+class VeritasEngine:
+    """환경별 Gemini 호환 + 최종 실패 시 로컬 분석 fallback"""
 
-def generate_weakness_report(user_input: str, responses: List[Dict]) -> str:
-    """
-    No 응답 기반으로 부족한 학습 파트를 자동 진단
-    """
-    weak_points = [r for r in responses if r["answer"] == "No"]
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.model = None
+        self.model_name = None
+        self._initialize_model()
 
-    if not weak_points:
-        return """
-### ✅ 진단 결과
-기초 이해와 적용력이 안정적입니다.
+    def _initialize_model(self):
+        candidates = [
+            "models/gemini-1.5-flash",
+            "gemini-1.5-flash",
+            "models/gemini-pro",
+            "gemini-pro",
+        ]
 
-### 🚀 다음 추천
-- 심화 문제 적용
-- 새로운 예시 확장
-- 다른 사람에게 설명해보기
-""".strip()
+        # 실제 generate_content 테스트까지 통과한 모델만 채택
+        for model_name in candidates:
+            try:
+                model = genai.GenerativeModel(model_name)
+                _ = model.generate_content(
+                    "ping",
+                    generation_config={"max_output_tokens": 1},
+                    request_options={"timeout": 10},
+                )
+                self.model = model
+                self.model_name = model_name
+                return
+            except Exception:
+                continue
 
-    weak_parts = []
+        # 동적 탐색
+        try:
+            for m in genai.list_models():
+                methods = getattr(m, "supported_generation_methods", [])
+                if "generateContent" not in methods:
+                    continue
+                try:
+                    model = genai.GenerativeModel(m.name)
+                    _ = model.generate_content(
+                        "ping",
+                        generation_config={"max_output_tokens": 1},
+                        request_options={"timeout": 10},
+                    )
+                    self.model = model
+                    self.model_name = m.name
+                    return
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
-    for r in weak_points:
-        q = r["question"]
+    def call(self, prompt: str, retries: int = 2) -> str:
+        if not self.model:
+            return "[LOCAL_FALLBACK]"
 
-        if "차이" in q or "구분" in q:
-            weak_parts.append("유사 개념 비교 능력")
-        elif "적용" in q or "실전" in q:
-            weak_parts.append("응용 전이 능력")
-        elif "순서" in q or "구성" in q:
-            weak_parts.append("구조적 연결 능력")
-        elif "점검" in q or "예방" in q:
-            weak_parts.append("복구 및 예방 전략")
-        else:
-            weak_parts.append("핵심 개념 이해")
+        for attempt in range(retries):
+            try:
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config={
+                        "temperature": 0.3,
+                        "max_output_tokens": 700,
+                    },
+                    request_options={"timeout": 20},
+                )
+                return response.text.strip()
 
-    weak_parts = list(dict.fromkeys(weak_parts))
+            except Exception as e:
+                logger.warning(f"LLM retry {attempt+1} failed: {e}")
+                if attempt == retries - 1:
+                    return "[LOCAL_FALLBACK]"
+                time.sleep(2)
+
+        return "[LOCAL_FALLBACK]"
+
+
+def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
+    """AI가 죽어도 반드시 결과를 내는 규칙 기반 분석기"""
+    weak_text = " ".join(
+        [f"{x['question']} {x.get('reason', '')}" for x in weak_points]
+    )
+
+    concepts = []
+
+    if "곱셈" in weak_text:
+        concepts.append("- 곱셈 순서 및 분배법칙")
+    if "음수" in weak_text:
+        concepts.append("- 음수 × 양수 / 음수 × 음수 규칙")
+    if "제곱근" in weak_text:
+        concepts.append("- 제곱근과 루트 계산")
+    if "분수" in weak_text:
+        concepts.append("- 분수 통분 및 약분")
+    if "재귀" in topic:
+        concepts.append("- 종료 조건과 호출 스택")
+
+    if not concepts:
+        concepts = ["- 개념 정의", "- 연산 순서", "- 유사 문제 반복"]
 
     return f"""
-### 📌 현재 부족한 파트
-{chr(10).join([f"- {x}" for x in weak_parts])}
+1. 결손 지점
+{topic}의 하위 연산 또는 핵심 개념 단계에서 사고가 끊겼습니다.
 
-### 🔍 왜 여기서 막히는가
-- 이해한 내용을 새로운 상황으로 옮기는 힘이 약합니다.
-- 구조를 부분적으로 이해하고 있어 연결 과정에서 흔들립니다.
+2. 왜 어려운지
+사용자의 No 응답을 보면 세부 연산 규칙 또는 개념 연결이 불안정합니다.
 
-### 📚 추천 복습 순서
-- 핵심 의미 정리
-- 단계별 구조 연결
-- 새로운 예시 적용
-- 유사 개념 비교
-- 스스로 설명하기
+3. 지금 복습할 기초 개념
+{chr(10).join(concepts)}
 """.strip()
+
+
+def extract_questions(raw: str) -> List[str]:
+    lines = raw.split("\n")
+    results = []
+    for line in lines:
+        line = line.strip()
+        if re.match(r"^\d+[.)]", line):
+            results.append(line)
+    return results[:5]
 
 
 # =============================
-# SESSION STATE
+# 4) SESSION
 # =============================
 if "stage" not in st.session_state:
     st.session_state.stage = "ready"
-
 if "data" not in st.session_state:
     st.session_state.data = {}
 
 # =============================
-# READY
+# 5) API KEY
+# =============================
+api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("API KEY", type="password")
+
+if not api_key:
+    st.warning("API 키를 입력하세요.")
+    st.stop()
+
+engine = VeritasEngine(api_key)
+
+# =============================
+# 6) READY
 # =============================
 if st.session_state.stage == "ready":
-    st.markdown("<div class='main-title'>Veritas AI</div>", unsafe_allow_html=True)
-    st.caption("by Jun")
-
-    topic = st.text_input(
-        "학습 중 막힌 부분을 자유롭게 입력하세요",
-        placeholder="예: 재귀함수, 영어 문장, 발표 구조, SQL 오류..."
-    )
+    st.markdown("""
+    <div style='position: relative; display: inline-block; width: 100%; text-align: center;'>
+        <div class='main-title'>Veritas AI</div>
+        <div style='position: absolute; right: 28%; bottom: -8px; font-size: 0.8rem; color: #8b949e;'>by Jun</div>
+    </div>
+""", unsafe_allow_html=True)
+    topic = st.text_input("학습 주제", placeholder="예: 근의공식")
 
     if st.button("빠른 진단 시작"):
-        if topic.strip():
-            questions = build_brain_like_questions(topic)
+        if topic:
+            # 주제 적응형 질문 생성
+            with st.spinner("주제 구조를 분석하여 맞춤 질문 생성 중..."):
+                result = engine.call(f"""
+당신은 학습 진단 AI입니다.
+사용자 입력: {topic}
+
+중요:
+- 입력은 특정 과목이나 개념에 한정되지 않는다.
+- 코드, 문장, 외국어 표현, 문제상황, 실수 패턴, 업무 고민, 창작 아이디어 등 광범위할 수 있다.
+- 먼저 입력 타입을 추론하라: 개념 / 코드 / 문장 / 오류 / 문제상황 / 응용
+- 사용자가 입력한 문장을 그대로 반복하거나 단어만 바꿔 질문하지 말라.
+- 입력의 '전체 학습면'을 분해하라: 의미, 구조, 원리, 적용, 비교/재구성.
+- 지금 당장 보이는 단면이 아니라 사용자가 다음 단계에서 실패할 가능성이 큰 지점까지 예측하라.
+- 질문마다 서로 다른 사고 단계를 겨냥하라.
+- 모든 질문은 반드시 Yes/No로 명확하게 답할 수 있는 폐쇄형 질문으로 만든다.
+- 각 질문은 서로 다른 사고 단계(이해/구조/적용/비교/예방)를 겨냥한다.
+
+출력 형식:
+1. 질문
+2. 질문
+3. 질문
+4. 질문
+5. 질문
+""")
+                questions = extract_questions(result)
+
+                # AI 실패 시에도 주제 기반 적응형 fallback
+                if not questions or result == "[LOCAL_FALLBACK]":
+                    questions = build_fallback_questions(topic)
 
             st.session_state.data["topic"] = topic
             st.session_state.data["questions"] = questions
@@ -162,28 +311,27 @@ if st.session_state.stage == "ready":
             st.rerun()
 
 # =============================
-# TESTING
+# 7) TESTING
 # =============================
 elif st.session_state.stage == "testing":
-    st.subheader(f"📘 진단 주제: {st.session_state.data['topic']}")
+    st.subheader(f"주제: {st.session_state.data['topic']}")
 
-    with st.form("diagnosis_form"):
-        responses = []
+    with st.form("test_form"):
+        responses: List[Dict] = []
 
         for i, q in enumerate(st.session_state.data["questions"]):
             st.markdown(f"<div class='diag-card'><b>{q}</b></div>", unsafe_allow_html=True)
-
             ans = st.radio(
-                f"질문 {i+1}",
+                f"q{i}",
                 ["Yes", "No"],
                 horizontal=True,
-                key=f"q_{i}"
+                label_visibility="collapsed",
+                key=f"radio_{i}",
             )
-
-            responses.append({
-                "question": q,
-                "answer": ans
-            })
+            reason = ""
+            if ans == "No":
+                reason = st.text_input(f"막힌 이유 {i+1}", key=f"reason_{i}")
+            responses.append({"question": q, "answer": ans, "reason": reason})
 
         if st.form_submit_button("최종 분석"):
             st.session_state.data["responses"] = responses
@@ -191,17 +339,35 @@ elif st.session_state.stage == "testing":
             st.rerun()
 
 # =============================
-# ANALYSIS
+# 8) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.subheader("📋 최종 진단 리포트")
+    st.subheader("최종 진단 리포트")
 
-    report = generate_weakness_report(
-        st.session_state.data["topic"],
-        st.session_state.data["responses"]
-    )
+    weak_points = [x for x in st.session_state.data["responses"] if x["answer"] == "No"]
 
-    st.markdown(report)
+    if not weak_points:
+        st.success("기초 개념이 충분히 잡혀 있습니다.")
+    else:
+        with st.spinner("결손 지점 분석 중..."):
+            report = engine.call(f"""
+주제: {st.session_state.data['topic']}
+약한 개념: {weak_points}
+
+다음 형식으로 분석:
+1. 결손 지점
+2. 왜 어려운지
+3. 지금 복습할 기초 개념
+""")
+
+        # AI 실패 시에도 무조건 분석 결과 출력
+        if report == "[LOCAL_FALLBACK]":
+            report = local_root_cause_analysis(
+                st.session_state.data['topic'],
+                weak_points,
+            )
+
+        st.write(report)
 
     if st.button("새 진단"):
         st.session_state.clear()
