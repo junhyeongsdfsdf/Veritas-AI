@@ -1,146 +1,68 @@
 import random
 from typing import List, Dict
+import streamlit as st
 
-import random
-from typing import List, Dict
+# =============================
+# PAGE CONFIG
+# =============================
+st.set_page_config(
+    page_title="Veritas AI | Smart Diagnostic",
+    page_icon="🔍",
+    layout="centered",
+)
 
+st.markdown("""
+<style>
+.stApp { background-color: #0d1117; color: #c9d1d9; }
+.main-title {
+    color: #58a6ff;
+    font-size: 2.7rem;
+    font-weight: 800;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+.diag-card {
+    padding: 1rem;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    background: #161b22;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =============================
+# QUESTION ENGINE
+# =============================
 QUESTION_LENSES = {
     "understanding": [
-        "지금 설명한 내용을 다른 사람에게 다시 설명할 수 있나요?",
-        "핵심 의미와 주변 정보를 구분할 수 있나요?",
+        "지금 떠올린 내용을 다른 사람에게 다시 설명할 수 있나요?",
+        "핵심 의미와 주변 정보를 구분해서 말할 수 있나요?",
     ],
     "structure": [
-        "구성 요소의 순서를 알고 있나요?",
-        "중간 단계가 빠지면 어디가 비는지 찾을 수 있나요?",
+        "구성 요소가 어떤 순서로 연결되는지 알고 있나요?",
+        "중간 단계가 빠졌을 때 어디가 비는지 찾을 수 있나요?",
     ],
     "application": [
-        "처음 보는 상황에도 적용할 수 있나요?",
+        "처음 보는 상황에도 같은 방식으로 적용할 수 있나요?",
         "실전 문제에 바로 활용할 수 있나요?",
     ],
     "comparison": [
-        "비슷한 개념과 차이를 설명할 수 있나요?",
-        "유사 실수를 구분할 수 있나요?",
+        "비슷한 개념과의 차이를 설명할 수 있나요?",
+        "유사한 실수와 현재 문제를 구분할 수 있나요?",
     ],
     "recovery": [
-        "막혔을 때 어디부터 다시 볼지 알고 있나요?",
+        "막혔을 때 어디부터 다시 점검해야 할지 알고 있나요?",
         "다음에 같은 실수를 예방할 수 있나요?",
     ],
 }
 
-def build_brain_like_questions(user_input: str) -> List[str]:
-    lenses = ["understanding", "structure", "application", "comparison", "recovery"]
-    questions = []
-    for i, lens in enumerate(lenses, 1):
-        q = random.choice(QUESTION_LENSES[lens])
-        questions.append(f"{i}. {q}")
-    return questions
 
-def generate_weakness_report(user_input: str, responses: List[Dict]) -> str:
-    no_answers = [r for r in responses if r["answer"] == "No"]
-
-    if not no_answers:
-        return "기초 이해와 적용력이 안정적입니다."
-
-    weak_parts = []
-    for r in no_answers:
-        q = r["question"]
-        if "차이" in q:
-            weak_parts.append("유사 개념 비교")
-        elif "적용" in q:
-            weak_parts.append("응용 전이")
-        elif "순서" in q:
-            weak_parts.append("구조적 연결")
-        else:
-            weak_parts.append("핵심 개념 이해")
-
-    weak_parts = list(dict.fromkeys(weak_parts))
-
-    return f'''
-1. 현재 부족한 파트
-- {'\n- '.join(weak_parts)}
-
-2. 왜 여기서 막히는가
-- 이해한 내용을 새로운 상황으로 전이하는 힘이 부족합니다.
-
-3. 추천 복습 순서
-- 핵심 의미 → 구조 관계 → 새로운 예시 적용 → 비교 → 스스로 설명
-'''.strip()
-
-# ======================================
-# 1) OPEN-WORLD DIAGNOSTIC REASONING DB
-# ======================================
-# 특정 입력 단어를 반복하지 않고, 사용자의 '이해 상태'를 여러 각도에서 검증
-QUESTION_LENSES = {
-    "understanding": [
-        "지금 설명한 내용을 다른 사람에게 예시 없이 다시 설명할 수 있나요?",
-        "핵심 의미와 주변 정보를 구분해서 말할 수 있나요?",
-        "왜 그렇게 되는지 이유를 스스로 설명할 수 있나요?",
-    ],
-    "structure": [
-        "구성 요소가 어떤 순서로 연결되는지 알고 있나요?",
-        "부분들이 서로 어떤 관계를 가지는지 설명할 수 있나요?",
-        "중간 단계가 빠졌을 때 어디가 비는지 찾을 수 있나요?",
-    ],
-    "application": [
-        "비슷하지만 처음 보는 상황에도 적용할 수 있나요?",
-        "조건이 조금 바뀌어도 같은 원리로 해결할 수 있나요?",
-        "실전 문제에서 바로 써먹을 수 있나요?",
-    ],
-    "comparison": [
-        "헷갈리기 쉬운 다른 개념과 차이를 설명할 수 있나요?",
-        "비슷한 실수와 현재 문제를 구분할 수 있나요?",
-        "같은 유형의 다른 사례와 비교해도 흔들리지 않나요?",
-    ],
-    "recovery": [
-        "막혔을 때 어디부터 다시 점검해야 하는지 알고 있나요?",
-        "스스로 복습 순서를 정해서 다시 해결할 수 있나요?",
-        "다음에 같은 실수를 예방할 기준이 있나요?",
-    ],
-}
-
-
-# ======================================
-# 2) INPUT SIGNAL ANALYZER
-# ======================================
-def infer_signals(user_input: str) -> Dict[str, float]:
-    """
-    사용자가 무엇을 넣을지 모르므로 주제를 직접 반복하지 않고
-    입력의 '인지적 난이도 신호'를 추론한다.
-    """
-    text = user_input.strip()
-    tokens = len(text.split())
-
-    signals = {
-        "ambiguity": 0.2,
-        "complexity": 0.2,
-        "transfer_risk": 0.2,
-        "memory_gap": 0.2,
-        "execution_gap": 0.2,
-    }
-
-    if tokens <= 3:
-        signals["ambiguity"] += 0.4
-    if any(x in text for x in ["왜", "어떻게", "안됨", "error", "bug"]):
-        signals["execution_gap"] += 0.4
-    if any(x in text for x in ["비교", "차이", "구분"]):
-        signals["transfer_risk"] += 0.4
-    if len(text) >= 40:
-        signals["complexity"] += 0.3
-
-    return signals
-
-
-# ======================================
-# 3) TRUE DYNAMIC 5 QUESTION GENERATOR
-# ======================================
 def build_brain_like_questions(user_input: str) -> List[str]:
     """
-    입력을 그대로 따라하지 않고, 매번 다른 사고 렌즈를 선택.
-    질문 5개가 항상 다른 목적을 가지도록 보장.
+    사용자의 입력을 그대로 반복하지 않고
+    항상 다른 사고 단계에서 5가지 Yes/No 질문 생성
     """
-    signals = infer_signals(user_input)
-
-    # 신호 기반 우선순위 렌즈 선택
     ordered_lenses = [
         "understanding",
         "structure",
@@ -149,69 +71,138 @@ def build_brain_like_questions(user_input: str) -> List[str]:
         "recovery",
     ]
 
-    # 입력이 짧고 모호하면 구조/이해 먼저
-    if signals["ambiguity"] > 0.5:
-        ordered_lenses = [
-            "understanding",
-            "structure",
-            "comparison",
-            "application",
-            "recovery",
-        ]
-
-    # 에러/버그/실전 문제는 recovery 먼저
-    if signals["execution_gap"] > 0.5:
-        ordered_lenses = [
-            "recovery",
-            "structure",
-            "application",
-            "comparison",
-            "understanding",
-        ]
-
     questions = []
-    for idx, lens in enumerate(ordered_lenses[:5], 1):
-        candidate = random.choice(QUESTION_LENSES[lens])
-        questions.append(f"{idx}. {candidate}")
+    for i, lens in enumerate(ordered_lenses, 1):
+        q = random.choice(QUESTION_LENSES[lens])
+        questions.append(f"{i}. {q}")
 
     return questions
 
 
-# ======================================
-# 4) WEAK-POINT REPORT ENGINE
-# ======================================
 def generate_weakness_report(user_input: str, responses: List[Dict]) -> str:
-    no_answers = [r for r in responses if r["answer"] == "No"]
+    """
+    No 응답 기반으로 부족한 학습 파트를 자동 진단
+    """
+    weak_points = [r for r in responses if r["answer"] == "No"]
 
-    if not no_answers:
-        return "기초 이해와 적용력이 안정적입니다. 다음 단계 심화 학습으로 넘어가도 좋습니다."
+    if not weak_points:
+        return """
+### ✅ 진단 결과
+기초 이해와 적용력이 안정적입니다.
 
-    categories = []
-    for r in no_answers:
+### 🚀 다음 추천
+- 심화 문제 적용
+- 새로운 예시 확장
+- 다른 사람에게 설명해보기
+""".strip()
+
+    weak_parts = []
+
+    for r in weak_points:
         q = r["question"]
-        if "이유" in q or "핵심" in q:
-            categories.append("핵심 개념 이해")
-        elif "순서" in q or "관계" in q:
-            categories.append("구조적 연결")
+
+        if "차이" in q or "구분" in q:
+            weak_parts.append("유사 개념 비교 능력")
         elif "적용" in q or "실전" in q:
-            categories.append("응용 전이")
-        elif "차이" in q or "구분" in q:
-            categories.append("유사 개념 비교")
+            weak_parts.append("응용 전이 능력")
+        elif "순서" in q or "구성" in q:
+            weak_parts.append("구조적 연결 능력")
+        elif "점검" in q or "예방" in q:
+            weak_parts.append("복구 및 예방 전략")
         else:
-            categories.append("복구 전략")
+            weak_parts.append("핵심 개념 이해")
 
-    unique = list(dict.fromkeys(categories))
+    weak_parts = list(dict.fromkeys(weak_parts))
 
-    report = [
-        "1. 현재 부족한 파트",
-        "- " + "\n- ".join(unique),
-        "",
-        "2. 왜 여기서 막히는가",
-        "- 개념을 아는 것과 실제 재구성하는 능력 사이에 간격이 있습니다.",
-        "- 입력은 이해했지만 새로운 상황으로 전이되는 과정이 약합니다.",
-        "",
-        "3. 추천 복습 순서",
-        "- 핵심 의미 → 구조 관계 → 새로운 예시 적용 → 유사 개념 비교 → 스스로 설명",
-    ]
+    return f"""
+### 📌 현재 부족한 파트
+{chr(10).join([f"- {x}" for x in weak_parts])}
 
-    return "\n".join(report)
+### 🔍 왜 여기서 막히는가
+- 이해한 내용을 새로운 상황으로 옮기는 힘이 약합니다.
+- 구조를 부분적으로 이해하고 있어 연결 과정에서 흔들립니다.
+
+### 📚 추천 복습 순서
+- 핵심 의미 정리
+- 단계별 구조 연결
+- 새로운 예시 적용
+- 유사 개념 비교
+- 스스로 설명하기
+""".strip()
+
+
+# =============================
+# SESSION STATE
+# =============================
+if "stage" not in st.session_state:
+    st.session_state.stage = "ready"
+
+if "data" not in st.session_state:
+    st.session_state.data = {}
+
+# =============================
+# READY
+# =============================
+if st.session_state.stage == "ready":
+    st.markdown("<div class='main-title'>Veritas AI</div>", unsafe_allow_html=True)
+    st.caption("by Jun")
+
+    topic = st.text_input(
+        "학습 중 막힌 부분을 자유롭게 입력하세요",
+        placeholder="예: 재귀함수, 영어 문장, 발표 구조, SQL 오류..."
+    )
+
+    if st.button("빠른 진단 시작"):
+        if topic.strip():
+            questions = build_brain_like_questions(topic)
+
+            st.session_state.data["topic"] = topic
+            st.session_state.data["questions"] = questions
+            st.session_state.stage = "testing"
+            st.rerun()
+
+# =============================
+# TESTING
+# =============================
+elif st.session_state.stage == "testing":
+    st.subheader(f"📘 진단 주제: {st.session_state.data['topic']}")
+
+    with st.form("diagnosis_form"):
+        responses = []
+
+        for i, q in enumerate(st.session_state.data["questions"]):
+            st.markdown(f"<div class='diag-card'><b>{q}</b></div>", unsafe_allow_html=True)
+
+            ans = st.radio(
+                f"질문 {i+1}",
+                ["Yes", "No"],
+                horizontal=True,
+                key=f"q_{i}"
+            )
+
+            responses.append({
+                "question": q,
+                "answer": ans
+            })
+
+        if st.form_submit_button("최종 분석"):
+            st.session_state.data["responses"] = responses
+            st.session_state.stage = "analysis"
+            st.rerun()
+
+# =============================
+# ANALYSIS
+# =============================
+elif st.session_state.stage == "analysis":
+    st.subheader("📋 최종 진단 리포트")
+
+    report = generate_weakness_report(
+        st.session_state.data["topic"],
+        st.session_state.data["responses"]
+    )
+
+    st.markdown(report)
+
+    if st.button("새 진단"):
+        st.session_state.clear()
+        st.rerun()
