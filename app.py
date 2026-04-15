@@ -1,338 +1,42 @@
-import re
-import time
-import logging
-from typing import List, Dict
+def build_smart_diagnosis_from_no(weak_points: List[Dict]) -> Dict:
+    """
+    사용자의 No 응답만 기반으로
+    놓친 개념 / 개념 설명 / 추가 학습 포인트를 똑똑하게 생성
+    """
+    weak_text = " ".join(
+        [f"{x['question']} {x.get('reason', '')}" for x in weak_points]
+    )
 
-import streamlit as st
-from openai import OpenAI
+    missed = []
+    explanations = []
+    extras = []
 
-# =============================
-# 1) CONFIG
-# =============================
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+    # 수학
+    if any(k in weak_text for k in ["공식", "함수", "방정식", "근의"]):
+        missed.append("공식 구조 이해")
+        explanations.append("공식은 단순 암기가 아니라 각 항이 어떤 역할을 하는지 이해해야 응용이 가능합니다.")
+        extras.extend(["변수 관계", "대입 순서", "예외 조건"])
 
-st.set_page_config(
-    page_title="Veritas AI | Smart Diagnostic",
-    page_icon="🔍",
-    layout="centered",
-)
+    # 프로그래밍
+    if any(k in weak_text for k in ["코드", "반복", "조건", "에러", "버그", "python", "java", "c"]):
+        missed.append("조건 흐름 추적")
+        explanations.append("코드 실행 순서와 조건 분기를 머릿속으로 따라가는 힘이 부족한 상태입니다.")
+        extras.extend(["if 조건", "반복문 종료", "디버깅 순서"])
 
-st.markdown("""
-<style>
-.stApp {
-    background-color: #0d1117;
-    color: #c9d1d9;
-}
+    # 언어 / 문장
+    if any(k in weak_text for k in ["문장", "영어", "어순", "문법"]):
+        missed.append("문장 구조 분석")
+        explanations.append("문장의 핵심 의미보다 구조를 먼저 파악해야 응용력이 생깁니다.")
+        extras.extend(["어순", "시제", "표현 비교"])
 
-.main-title {
-    color: #58a6ff;
-    font-size: 2.8rem;
-    font-weight: 900;
-    text-align: center;
-}
+    # 기본 fallback
+    if not missed:
+        missed = ["핵심 개념 구조화"]
+        explanations = ["개념은 알고 있지만 구조적으로 연결되지 않아 응용 단계에서 막히는 상태입니다."]
+        extras = ["기초 정의", "적용 예시", "실수 패턴"]
 
-.big-report-title {
-    color: #58a6ff;
-    font-size: 3rem;
-    font-weight: 900;
-    text-align: center;
-    margin-bottom: 1.5rem;
-}
-
-.diag-card {
-    padding: 1.2rem;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    margin-bottom: 1rem;
-    background: #161b22;
-}
-
-.result-card {
-    padding: 1.4rem;
-    border-radius: 14px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    margin-bottom: 1rem;
-    line-height: 1.8;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# =============================
-# 2) QUESTION FALLBACK
-# =============================
-def infer_input_type(text: str) -> str:
-    if any(x in text for x in ["def ", "for ", "while ", "{", "}", ";"]):
-        return "code"
-    if any(x in text for x in ["왜", "안돼", "error", "bug"]):
-        return "problem"
-    if len(text.split()) >= 4:
-        return "sentence"
-    return "concept"
-
-
-def build_fallback_questions(topic: str) -> List[str]:
-    q = [
-        f"1. '{topic}'의 핵심 개념을 스스로 설명할 수 있나요?",
-        f"2. '{topic}'를 다른 문제에도 적용할 수 있나요?",
-        f"3. 비슷한 사례와 차이를 구분할 수 있나요?",
-        f"4. 왜 그렇게 동작하는지 원리를 설명할 수 있나요?",
-        f"5. 다음에도 같은 실수를 막을 수 있나요?",
-    ]
-    return q
-
-
-def extract_questions(raw: str) -> List[str]:
-    lines = raw.split("\n")
-    result = []
-
-    for line in lines:
-        line = line.strip()
-        if re.match(r"^\d+[.)]", line):
-            result.append(line)
-
-    return result[:5]
-
-
-# =============================
-# 3) OPENAI ENGINE
-# =============================
-class VeritasEngine:
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-        self.model_name = "gpt-5"
-
-    def generate_questions(self, topic: str, timeout: int = 60):
-        start = time.time()
-
-        while time.time() - start < timeout:
-            try:
-                response = self.client.responses.create(
-                    model=self.model_name,
-                    input=f"""
-사용자 입력: {topic}
-
-규칙:
-- Yes/No 질문 5개
-- 서로 다른 사고 단계
-- 입력 문장 반복 금지
-- 이해 / 구조 / 적용 / 비교 / 예방
-""",
-                )
-
-                text = response.output_text.strip()
-                q = extract_questions(text)
-
-                if len(q) == 5:
-                    return q
-
-            except Exception:
-                pass
-
-            time.sleep(5)
-
-        return build_fallback_questions(topic)
-
-    def generate_report(self, topic: str, weak_points: List[Dict]):
-        weak_text = "\n".join(
-            [f"{x['question']} / {x['reason']}" for x in weak_points]
-        )
-
-        try:
-            response = self.client.responses.create(
-                model=self.model_name,
-                input=f"""
-주제: {topic}
-약한 부분:
-{weak_text}
-
-아래 형식으로 분석:
-1. 놓친개념
-2. 개념설명
-3. 추가로 필요한 부분 3개
-짧지만 전문가처럼 정성껏 분석
-""",
-            )
-
-            text = response.output_text.strip().split("\n")
-            lines = [x.strip() for x in text if x.strip()]
-
-            return {
-                "missing": lines[0] if len(lines) > 0 else "핵심 구조 이해 부족",
-                "explain": lines[1] if len(lines) > 1 else "기초 개념과 응용 연결이 약합니다.",
-                "extra": lines[2:5] if len(lines) >= 5 else [
-                    "기초 정의",
-                    "대표 문제",
-                    "실수 비교",
-                ]
-            }
-
-        except Exception:
-            return {
-                "missing": "핵심 구조 이해 부족",
-                "explain": "기초 개념과 응용 연결이 약합니다.",
-                "extra": [
-                    "기초 정의",
-                    "대표 문제",
-                    "실수 비교",
-                ]
-            }
-
-
-# =============================
-# 4) SESSION
-# =============================
-if "stage" not in st.session_state:
-    st.session_state.stage = "ready"
-if "data" not in st.session_state:
-    st.session_state.data = {}
-
-# =============================
-# 5) API KEY
-# =============================
-api_key = st.secrets.get("OPENAI_API_KEY") or st.sidebar.text_input(
-    "OPENAI API KEY",
-    type="password"
-)
-
-if not api_key:
-    st.warning("OPENAI API 키를 입력하세요.")
-    st.stop()
-
-engine = VeritasEngine(api_key)
-
-# =============================
-# 6) READY
-# =============================
-if st.session_state.stage == "ready":
-    st.markdown("""
-<div style='position: relative; display: inline-block; width: 100%; text-align: center;'>
-    <div class='main-title'>Veritas AI</div>
-    <div style='position: absolute; right: 28%; bottom: -8px; font-size: 0.8rem; color: #8b949e;'>
-        by Jun
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-    topic = st.text_input("학습 주제")
-
-    if st.button("빠른 진단 시작"):
-        if topic:
-            progress_text = st.empty()
-            progress_bar = st.progress(0)
-
-            progress_text.markdown("### 열심히 탐색중!! 🤗")
-
-            start = time.time()
-            questions = []
-
-            while time.time() - start < 60:
-                elapsed = time.time() - start
-                progress_bar.progress(min(int((elapsed / 60) * 100), 100))
-
-                questions = engine.generate_questions(topic, timeout=5)
-
-                if len(questions) == 5:
-                    break
-
-            progress_bar.progress(100)
-            progress_text.markdown("### 탐색 완료! ✨")
-
-            st.session_state.data["topic"] = topic
-            st.session_state.data["questions"] = questions
-            st.session_state.stage = "testing"
-            st.rerun()
-
-# =============================
-# 7) TESTING
-# =============================
-elif st.session_state.stage == "testing":
-    st.subheader(st.session_state.data["topic"])
-
-    with st.form("diag"):
-        responses = []
-
-        for i, q in enumerate(st.session_state.data["questions"]):
-            st.markdown(f"<div class='diag-card'><b>{q}</b></div>", unsafe_allow_html=True)
-
-            ans = st.radio(
-                f"q{i}",
-                ["Yes", "No"],
-                horizontal=True,
-                key=f"r{i}",
-                label_visibility="collapsed"
-            )
-
-            reason = ""
-            if ans == "No":
-                reason = st.text_input(f"막힌 이유 {i+1}", key=f"t{i}")
-
-            responses.append({
-                "question": q,
-                "answer": ans,
-                "reason": reason
-            })
-
-        if st.form_submit_button("최종 분석"):
-            st.session_state.data["responses"] = responses
-            st.session_state.stage = "analysis"
-            st.rerun()
-
-# =============================
-# 8) ANALYSIS
-# =============================
-elif st.session_state.stage == "analysis":
-    weak_points = [
-        x for x in st.session_state.data["responses"]
-        if x["answer"] == "No"
-    ]
-
-    st.markdown("""
-    <div style='text-align:center;
-                font-size:2.3rem;
-                font-weight:900;
-                color:#58a6ff;
-                margin-bottom:2rem;'>
-        진단 결과 😋
-    </div>
-    """, unsafe_allow_html=True)
-
-    if not weak_points:
-        st.success("모든 핵심 사고 단계가 안정적입니다.")
-    else:
-        result = build_smart_diagnosis_from_no(weak_points)
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown("""
-            <div class='diag-card'>
-            <h4>놓친 개념</h4>
-            </div>
-            """, unsafe_allow_html=True)
-            for x in result["missed"]:
-                st.write(f"- {x}")
-
-        with col2:
-            st.markdown("""
-            <div class='diag-card'>
-            <h4>개념 설명</h4>
-            </div>
-            """, unsafe_allow_html=True)
-            for x in result["explanations"]:
-                st.write(f"- {x}")
-
-        with col3:
-            st.markdown("""
-            <div class='diag-card'>
-            <h4>추가로 필요한 부분</h4>
-            </div>
-            """, unsafe_allow_html=True)
-            for x in result["next_steps"]:
-                search_url = f"https://chat.openai.com/?q={x}"
-                st.markdown(f"- [{x}]({search_url})")
-
-    if st.button("새 진단"):
-        st.session_state.clear()
-        st.rerun()
+    return {
+        "missed": missed[:3],
+        "explanation": explanations[:3],
+        "extra": extras[:5]
+    }
