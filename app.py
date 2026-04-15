@@ -9,7 +9,7 @@ from openai import OpenAI
 
 
 # =============================
-# CONFIG
+# CONFIG (기본 유지)
 # =============================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,12 +59,18 @@ st.markdown("""
     font-weight: 700;
     margin-bottom: 0.7rem;
 }
+/* 오답 노트 전용 스타일 */
+.wrong-note {
+    border-left: 5px solid #f85149;
+    padding-left: 1rem;
+    background: #1c2128;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
 # =============================
-# QUESTION HELPERS
+# QUESTION HELPERS (기본 유지)
 # =============================
 def build_fallback_questions(topic: str) -> List[str]:
     return [
@@ -79,17 +85,15 @@ def build_fallback_questions(topic: str) -> List[str]:
 def extract_questions(raw: str) -> List[str]:
     lines = raw.split("\n")
     results = []
-
     for line in lines:
         line = line.strip()
         if re.match(r"^\d+[.)]", line):
             results.append(line)
-
     return results[:5]
 
 
 # =============================
-# GPT ENGINE
+# GPT ENGINE (기본 유지)
 # =============================
 class VeritasEngine:
     def __init__(self, api_key: str):
@@ -109,7 +113,7 @@ class VeritasEngine:
 
 
 # =============================
-# DIAGNOSIS ENGINE
+# DIAGNOSIS ENGINE (분석 로직 유지)
 # =============================
 def build_smart_diagnosis_from_no(
     weak_points: List[Dict],
@@ -127,41 +131,38 @@ def build_smart_diagnosis_from_no(
             explanation = (
                 f"{topic}를 일반적인 상황에서는 이해하고 있지만, "
                 f"적용되지 않는 반례 상황을 빠르게 구분하는 힘이 약합니다. "
-                f"시험에서는 이 부분이 함정 문제로 자주 출제됩니다."
+                f"이 부분은 실전에서 함정 문제로 자주 출제됩니다."
             )
             extra = [
-                f"{topic} 반례 문제",
-                f"{topic} 오답 패턴",
-                f"{topic} 함정 유형"
+                f"{topic} 반례 예시 및 문제 풀이",
+                f"{topic} 오답 패턴 분석",
+                f"{topic} 심화 함정 유형"
             ]
 
         elif "조건" in q or "단계" in q:
             concept = f"{topic} 조건 변화 해석"
             explanation = (
-                f"{topic}의 절차나 핵심 단계는 이해하고 있으나 "
-                f"조건이 달라졌을 때 어떤 단계가 먼저 영향을 받는지 "
-                f"추론하는 부분이 약합니다. "
-                f"응용 문제 해결력을 높이려면 조건 변화에 따른 "
-                f"결과 흐름을 연결해서 복습해야 합니다."
+                f"{topic}의 절차는 이해하고 있으나 조건이 달라졌을 때 "
+                f"어떤 단계가 먼저 영향을 받는지 추론하는 부분이 약합니다. "
+                f"조건 변화에 따른 결과 흐름을 복습해야 합니다."
             )
             extra = [
-                f"{topic} 조건 변화",
-                f"{topic} 응용 문제",
-                f"{topic} 단계별 흐름"
+                f"{topic} 조건 변화에 따른 결과",
+                f"{topic} 응용 문제 모음",
+                f"{topic} 알고리즘 단계별 시각화"
             ]
 
         else:
             concept = f"{topic} 핵심 원리 연결"
             explanation = (
-                f"{topic}의 핵심 개념은 알고 있지만 "
-                f"원리 → 구조 → 응용으로 이어지는 연결력이 약합니다. "
-                f"왜 이런 결과가 나오는지 설명형 사고를 강화하면 "
+                f"{topic}의 핵심 개념은 알고 있지만 원리에서 응용으로 이어지는 "
+                f"연결력이 약합니다. 원리를 바탕으로 설명형 사고를 강화하면 "
                 f"정답률이 빠르게 올라갑니다."
             )
             extra = [
-                f"{topic} 핵심 원리",
-                f"{topic} 구조 복습",
-                f"{topic} 실전 응용"
+                f"{topic} 핵심 원리 상세 설명",
+                f"{topic} 구조 및 메커니즘 복습",
+                f"{topic} 실전 응용 사례"
             ]
 
         missed.append(f"• {concept}")
@@ -176,7 +177,7 @@ def build_smart_diagnosis_from_no(
 
 
 # =============================
-# SESSION
+# SESSION (기본 유지)
 # =============================
 if "stage" not in st.session_state:
     st.session_state.stage = "ready"
@@ -186,7 +187,7 @@ if "data" not in st.session_state:
 
 
 # =============================
-# API KEY
+# API KEY (기본 유지)
 # =============================
 api_key = st.secrets.get("OPENAI_API_KEY") or st.sidebar.text_input(
     "OPENAI API KEY",
@@ -201,7 +202,7 @@ engine = VeritasEngine(api_key)
 
 
 # =============================
-# READY PAGE
+# READY PAGE (기본 유지)
 # =============================
 if st.session_state.stage == "ready":
     st.markdown("""
@@ -231,25 +232,12 @@ if st.session_state.stage == "ready":
                 progress = min(int((elapsed / 60) * 100), 100)
                 progress_bar.progress(progress)
 
-                result = engine.call(f"""
-사용자 주제: {topic}
-
-역할:
-취약 개념을 정확히 잡아내는 OX 퀴즈 5개 생성
-
-규칙:
-- 자기평가 질문 금지
-- Yes/No 퀴즈형
-- 반례 / 예외 / 응용 포함
-- 번호 1~5
-""")
-
+                result = engine.call(f"사용자 주제: {topic}\n\n역할: 취약 개념을 정확히 잡아내는 OX 퀴즈 5개 생성\n\n규칙: - Yes/No 퀴즈형 - 반례/예외 포함 - 번호 1~5")
                 questions = extract_questions(result)
 
                 if len(questions) >= 5:
                     found = True
                     break
-
                 time.sleep(3)
 
             progress_bar.progress(100)
@@ -265,31 +253,17 @@ if st.session_state.stage == "ready":
 
 
 # =============================
-# TEST PAGE
+# TEST PAGE (기본 유지)
 # =============================
 elif st.session_state.stage == "testing":
     st.subheader(f"주제: {st.session_state.data['topic']}")
 
     with st.form("test_form"):
         responses = []
-
         for i, q in enumerate(st.session_state.data["questions"]):
-            st.markdown(
-                f"<div class='diag-card'><b>{q}</b></div>",
-                unsafe_allow_html=True
-            )
-
-            ans = st.radio(
-                f"q{i}",
-                ["Yes", "No"],
-                horizontal=True,
-                key=f"radio_{i}"
-            )
-
-            responses.append({
-                "question": q,
-                "answer": ans
-            })
+            st.markdown(f"<div class='diag-card'><b>{q}</b></div>", unsafe_allow_html=True)
+            ans = st.radio(f"q{i}", ["Yes", "No"], horizontal=True, key=f"radio_{i}")
+            responses.append({"question": q, "answer": ans})
 
         if st.form_submit_button("최종 분석"):
             st.session_state.data["responses"] = responses
@@ -298,28 +272,34 @@ elif st.session_state.stage == "testing":
 
 
 # =============================
-# ANALYSIS PAGE
+# ANALYSIS PAGE (사용자 요청 반영 수정)
 # =============================
 elif st.session_state.stage == "analysis":
-    st.markdown(
-        "<div class='result-title'>진단 결과 😋</div>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<div class='result-title'>진단 결과 😋</div>", unsafe_allow_html=True)
 
-    weak_points = [
-        x for x in st.session_state.data["responses"]
-        if x["answer"] == "No"
-    ]
+    weak_points = [x for x in st.session_state.data["responses"] if x["answer"] == "No"]
 
     if not weak_points:
-        st.success("현재 핵심 개념과 응용 이해도가 매우 안정적입니다.")
+        st.success("🎉 현재 모든 핵심 개념에 대한 이해도가 완벽합니다!")
     else:
+        # 1. 오답 노트 섹션 (No라고 답한 질문들)
+        st.markdown("### 📝 오답 노트")
+        for wp in weak_points:
+            st.markdown(f"""
+            <div class='diag-card wrong-note'>
+                <b>❌ 놓친 문항:</b> {wp['question']}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.divider()
+
+        # 진단 결과 데이터 가져오기
         result = build_smart_diagnosis_from_no(
             weak_points,
             st.session_state.data["topic"]
         )
 
-        # 놓친 개념
+        # 2. 놓친 개념 카테고리
         st.markdown(f"""
         <div class='category-card'>
             <div class='category-title'>놓친 개념</div>
@@ -327,7 +307,7 @@ elif st.session_state.stage == "analysis":
         </div>
         """, unsafe_allow_html=True)
 
-        # 개념 설명
+        # 3. 개념 설명 카테고리
         st.markdown(f"""
         <div class='category-card'>
             <div class='category-title'>개념 설명</div>
@@ -335,22 +315,23 @@ elif st.session_state.stage == "analysis":
         </div>
         """, unsafe_allow_html=True)
 
-        # 추가로 필요한 부분 (같은 박스 안에 링크 포함)
+        # 4. 추가로 필요한 부분 (챗지피티 링크 자동 연동)
         extra_html = ""
         for extra in result["추가로 필요한 부분"]:
-            link = f"https://chat.openai.com/?q={quote(extra)}"
+            # 챗지피티 검색 URL (https://chatgpt.com/?q=내용)
+            link = f"https://chatgpt.com/?q={quote(extra)}"
             extra_html += f"""
             <div style='margin-top:0.7rem;'>
                 <a href="{link}" target="_blank"
-                   style="color:#c9d1d9; text-decoration:none;">
-                   • {extra}
+                   style="color:#c9d1d9; text-decoration:none; font-weight:500;">
+                   • <span style="text-decoration:underline;">{extra}</span> 🔗
                 </a>
             </div>
             """
 
         st.markdown(f"""
         <div class='category-card'>
-            <div class='category-title'>추가로 필요한 부분</div>
+            <div class='category-title'>추가로 필요한 부분 (클릭 시 ChatGPT 학습)</div>
             {extra_html}
         </div>
         """, unsafe_allow_html=True)
