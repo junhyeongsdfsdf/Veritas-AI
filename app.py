@@ -332,7 +332,7 @@ elif st.session_state.stage == "testing":
 # 9) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.subheader("핵심 부족 포인트")
+    st.subheader("핵심 진단 리포트")
 
     weak_points = [
         x for x in st.session_state.data["responses"]
@@ -340,7 +340,7 @@ elif st.session_state.stage == "analysis":
     ]
 
     if not weak_points:
-        st.success("현재 주제의 핵심 구조는 충분히 이해하고 있습니다.")
+        st.success("현재 주제의 핵심 개념은 충분히 이해하고 있습니다.")
     else:
         try:
             prompt = f"""
@@ -354,22 +354,20 @@ elif st.session_state.stage == "analysis":
 
 규칙:
 - 길게 설명하지 말 것
-- 스크롤 적게 핵심만 출력
-- 모르는 핵심 개념 3개
-- 바로 체크해야 할 포인트 3개
-- 불필요한 문장 금지
+- 핵심만 간결하게
+- 스크롤 최소화
+- 반드시 아래 3개 섹션만 출력
 
 출력 형식:
 
-### 놓친 핵심 개념
-- ...
-- ...
-- ...
+### 1. 놓친 핵심 개념
+- 핵심 개념 3개
 
-### 지금 바로 체크
-- ...
-- ...
-- ...
+### 2. 개념 설명
+- 각 핵심 개념을 1~2줄로 쉽게 설명
+
+### 3. 추가로 필요한 부분
+- 지금 같이 보면 좋은 연결 개념 3개
 """
             response = engine.client.responses.create(
                 model=engine.model_name,
