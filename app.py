@@ -283,39 +283,55 @@ elif st.session_state.stage == "testing":
 # 8) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.markdown("<div class='big-report-title'>진단 결과 😋</div>", unsafe_allow_html=True)
-
     weak_points = [
         x for x in st.session_state.data["responses"]
         if x["answer"] == "No"
     ]
 
-    result = engine.generate_report(
-        st.session_state.data["topic"],
-        weak_points
-    )
-
-    st.markdown(f"""
-    <div class='result-card'>
-    <b>놓친 개념</b><br><br>
-    {result["missing"]}
+    st.markdown("""
+    <div style='text-align:center;
+                font-size:2.3rem;
+                font-weight:900;
+                color:#58a6ff;
+                margin-bottom:2rem;'>
+        진단 결과 😋
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div class='result-card'>
-    <b>개념 설명</b><br><br>
-    {result["explain"]}
-    </div>
-    """, unsafe_allow_html=True)
+    if not weak_points:
+        st.success("모든 핵심 사고 단계가 안정적입니다.")
+    else:
+        result = build_smart_diagnosis_from_no(weak_points)
 
-    st.markdown("<div class='result-card'><b>추가로 필요한 부분</b><br><br>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
 
-    for item in result["extra"]:
-        link = f"https://chat.openai.com/?q={item}"
-        st.markdown(f"- [{item}]({link})")
+        with col1:
+            st.markdown("""
+            <div class='diag-card'>
+            <h4>놓친 개념</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            for x in result["missed"]:
+                st.write(f"- {x}")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        with col2:
+            st.markdown("""
+            <div class='diag-card'>
+            <h4>개념 설명</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            for x in result["explanations"]:
+                st.write(f"- {x}")
+
+        with col3:
+            st.markdown("""
+            <div class='diag-card'>
+            <h4>추가로 필요한 부분</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            for x in result["next_steps"]:
+                search_url = f"https://chat.openai.com/?q={x}"
+                st.markdown(f"- [{x}]({search_url})")
 
     if st.button("새 진단"):
         st.session_state.clear()
