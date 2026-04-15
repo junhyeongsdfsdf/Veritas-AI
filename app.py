@@ -335,26 +335,23 @@ elif st.session_state.stage == "analysis":
         </div>
         """, unsafe_allow_html=True)
 
-        # 추가로 필요한 부분 (같은 박스 안에 링크 포함)
+        # 추가로 필요한 부분 (링크 포함 + 같은 박스 내부)
         extra_html = ""
+        
         for extra in result["추가로 필요한 부분"]:
             link = f"https://chat.openai.com/?q={quote(extra)}"
             extra_html += f"""
             <div style='margin-top:0.7rem;'>
                 <a href="{link}" target="_blank"
-                   style="color:#c9d1d9; text-decoration:none;">
+                   style="color:#58a6ff; text-decoration:none; font-weight:600;">
                    • {extra}
                 </a>
             </div>
             """
-
+        
         st.markdown(f"""
         <div class='category-card'>
             <div class='category-title'>추가로 필요한 부분</div>
             {extra_html}
         </div>
         """, unsafe_allow_html=True)
-
-    if st.button("새 진단"):
-        st.session_state.clear()
-        st.rerun()
