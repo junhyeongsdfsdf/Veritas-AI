@@ -1,6 +1,11 @@
 import random
 from typing import List, Dict
 
+from veritas_dynamic_question_engine import (
+    build_brain_like_questions,
+    generate_weakness_report,
+)
+
 # ======================================
 # 1) OPEN-WORLD DIAGNOSTIC REASONING DB
 # ======================================
