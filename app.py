@@ -4,8 +4,7 @@ import logging
 from typing import List, Dict
 
 import streamlit as st
-import google.generativeai as genai
-from google.api_core import exceptions
+from openai import OpenAI
 
 # =============================
 # 1) CONFIG
@@ -28,9 +27,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================
-# 2) ADAPTIVE DIAGNOSTIC INTELLIGENCE
+# 2) FALLBACK QUESTION ENGINE
 # =============================
-# 범용 학습 진단 차원 (과목/언어/실무 모두 대응)
 UNIVERSAL_DIAGNOSTIC_DIMENSIONS = [
     "핵심 개념을 자신의 말로 설명",
     "구성 요소를 구분",
@@ -39,22 +37,8 @@ UNIVERSAL_DIAGNOSTIC_DIMENSIONS = [
     "헷갈리는 예외/유사 개념과 비교",
 ]
 
-LANGUAGE_KEYWORDS = ["영어", "중국어", "일본어", "한국어", "grammar", "vocabulary", "speaking"]
-
-
-def infer_domain(topic: str) -> str:
-    topic = topic.lower()
-    if any(k in topic for k in ["공식", "함수", "방정식", "미분", "적분", "확률"]):
-        return "math"
-    if any(k in topic for k in ["c", "java", "python", "재귀", "포인터", "sql", "알고리즘"]):
-        return "programming"
-    if any(k in topic for k in ["물리", "화학", "양자", "생물"]):
-        return "science"
-    return "general"
-
 
 def infer_input_type(user_input: str) -> str:
-    """어떤 형태의 입력이 와도 먼저 타입을 추론"""
     text = user_input.strip()
     if any(sym in text for sym in ["def ", "for ", "while ", "if ", "{", "}", ";"]):
         return "code"
@@ -66,7 +50,6 @@ def infer_input_type(user_input: str) -> str:
 
 
 def extract_learning_facets(user_input: str) -> List[str]:
-    """입력 문장을 그대로 반복하지 않고 학습의 여러 면을 분해"""
     input_type = infer_input_type(user_input)
 
     facet_map = {
@@ -103,7 +86,6 @@ def extract_learning_facets(user_input: str) -> List[str]:
 
 
 def build_fallback_questions(topic: str) -> List[str]:
-    """반드시 Yes/No로 답할 수 있는 맞춤형 질문 생성"""
     facets = extract_learning_facets(topic)
     question_styles = [
         "{idx}. 현재 입력에서 '{facet}'가 막힌 핵심 지점이라고 스스로 판단되나요?",
@@ -112,98 +94,57 @@ def build_fallback_questions(topic: str) -> List[str]:
         "{idx}. 비슷하지만 다른 사례에서도 '{facet}'를 그대로 적용할 수 있나요?",
         "{idx}. 다음에는 혼자서도 '{facet}' 실수를 예방할 수 있나요?",
     ]
-    questions = []
-    for i, facet in enumerate(facets[:5]):
-        questions.append(question_styles[i].format(idx=i+1, facet=facet))
-    return questions
+    return [question_styles[i].format(idx=i+1, facet=facet) for i, facet in enumerate(facets[:5])]
+
+
+def extract_questions(raw: str) -> List[str]:
+    lines = raw.split("\n")
+    results = []
+    for line in lines:
+        line = line.strip()
+        if re.match(r"^\d+[.)]", line):
+            results.append(line)
+    return results[:5]
+
 
 # =============================
-# 3) ENGINE
+# 3) OPENAI ENGINE (60s SEARCH)
 # =============================
 class VeritasEngine:
-    """환경별 Gemini 호환 + 최종 실패 시 로컬 분석 fallback"""
-
     def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.model = None
-        self.model_name = None
-        self._initialize_model()
+        self.client = OpenAI(api_key=api_key)
+        self.model_name = "gpt-5"
 
-    def _initialize_model(self):
-        candidates = [
-            "models/gemini-1.5-flash",
-            "gemini-1.5-flash",
-            "models/gemini-pro",
-            "gemini-pro",
-        ]
+    def call(self, prompt: str, max_wait_seconds: int = 60) -> str:
+        """최대 60초 동안 반복 탐색 후 실패 시 fallback"""
+        start_time = time.time()
+        attempt = 1
 
-        # 실제 generate_content 테스트까지 통과한 모델만 채택
-        for model_name in candidates:
+        while time.time() - start_time < max_wait_seconds:
             try:
-                model = genai.GenerativeModel(model_name)
-                _ = model.generate_content(
-                    "ping",
-                    generation_config={"max_output_tokens": 1},
-                    request_options={"timeout": 10},
+                logger.info(f"LLM 탐색 시도 {attempt}")
+                response = self.client.responses.create(
+                    model=self.model_name,
+                    input=prompt,
                 )
-                self.model = model
-                self.model_name = model_name
-                return
-            except Exception:
-                continue
-
-        # 동적 탐색
-        try:
-            for m in genai.list_models():
-                methods = getattr(m, "supported_generation_methods", [])
-                if "generateContent" not in methods:
-                    continue
-                try:
-                    model = genai.GenerativeModel(m.name)
-                    _ = model.generate_content(
-                        "ping",
-                        generation_config={"max_output_tokens": 1},
-                        request_options={"timeout": 10},
-                    )
-                    self.model = model
-                    self.model_name = m.name
-                    return
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-    def call(self, prompt: str, retries: int = 2) -> str:
-        if not self.model:
-            return "[LOCAL_FALLBACK]"
-
-        for attempt in range(retries):
-            try:
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config={
-                        "temperature": 0.3,
-                        "max_output_tokens": 700,
-                    },
-                    request_options={"timeout": 20},
-                )
-                return response.text.strip()
-
+                text = response.output_text.strip()
+                questions = extract_questions(text)
+                if len(questions) >= 5:
+                    return text
             except Exception as e:
-                logger.warning(f"LLM retry {attempt+1} failed: {e}")
-                if attempt == retries - 1:
-                    return "[LOCAL_FALLBACK]"
-                time.sleep(2)
+                logger.warning(f"탐색 실패 {attempt}: {e}")
+
+            time.sleep(5)
+            attempt += 1
 
         return "[LOCAL_FALLBACK]"
 
 
+# =============================
+# 4) ANALYSIS FALLBACK
+# =============================
 def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
-    """AI가 죽어도 반드시 결과를 내는 규칙 기반 분석기"""
-    weak_text = " ".join(
-        [f"{x['question']} {x.get('reason', '')}" for x in weak_points]
-    )
-
+    weak_text = " ".join([f"{x['question']} {x.get('reason', '')}" for x in weak_points])
     concepts = []
 
     if "곱셈" in weak_text:
@@ -232,37 +173,29 @@ def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
 """.strip()
 
 
-def extract_questions(raw: str) -> List[str]:
-    lines = raw.split("\n")
-    results = []
-    for line in lines:
-        line = line.strip()
-        if re.match(r"^\d+[.)]", line):
-            results.append(line)
-    return results[:5]
-
-
 # =============================
-# 4) SESSION
+# 5) SESSION
 # =============================
 if "stage" not in st.session_state:
     st.session_state.stage = "ready"
 if "data" not in st.session_state:
     st.session_state.data = {}
 
+
 # =============================
-# 5) API KEY
+# 6) API KEY
 # =============================
-api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("API KEY", type="password")
+api_key = st.secrets.get("OPENAI_API_KEY") or st.sidebar.text_input("OPENAI API KEY", type="password")
 
 if not api_key:
-    st.warning("API 키를 입력하세요.")
+    st.warning("OPENAI API 키를 입력하세요.")
     st.stop()
 
 engine = VeritasEngine(api_key)
 
+
 # =============================
-# 6) READY
+# 7) READY
 # =============================
 if st.session_state.stage == "ready":
     st.markdown("""
@@ -271,37 +204,41 @@ if st.session_state.stage == "ready":
         <div style='position: absolute; right: 28%; bottom: -8px; font-size: 0.8rem; color: #8b949e;'>by Jun</div>
     </div>
 """, unsafe_allow_html=True)
-    topic = st.text_input("학습 주제", placeholder="예: 근의공식")
+
+    topic = st.text_input("학습 주제", placeholder="예: 근의공식, 영어 문장, SQL 오류")
 
     if st.button("빠른 진단 시작"):
         if topic:
-            # 주제 적응형 질문 생성
-            with st.spinner("주제 구조를 분석하여 맞춤 질문 생성 중..."):
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+            progress_text.markdown("### 열심히 탐색중!! 🤗")
+
+            start_time = time.time()
+            result = None
+            while time.time() - start_time < 60:
+                elapsed = time.time() - start_time
+                progress = min(int((elapsed / 60) * 100), 100)
+                progress_bar.progress(progress)
+
+                # 5초 단위로 내부 탐색 호출
                 result = engine.call(f"""
 당신은 학습 진단 AI입니다.
 사용자 입력: {topic}
 
-중요:
-- 입력은 특정 과목이나 개념에 한정되지 않는다.
-- 코드, 문장, 외국어 표현, 문제상황, 실수 패턴, 업무 고민, 창작 아이디어 등 광범위할 수 있다.
-- 먼저 입력 타입을 추론하라: 개념 / 코드 / 문장 / 오류 / 문제상황 / 응용
-- 사용자가 입력한 문장을 그대로 반복하거나 단어만 바꿔 질문하지 말라.
-- 입력의 '전체 학습면'을 분해하라: 의미, 구조, 원리, 적용, 비교/재구성.
-- 지금 당장 보이는 단면이 아니라 사용자가 다음 단계에서 실패할 가능성이 큰 지점까지 예측하라.
-- 질문마다 서로 다른 사고 단계를 겨냥하라.
-- 모든 질문은 반드시 Yes/No로 명확하게 답할 수 있는 폐쇄형 질문으로 만든다.
-- 각 질문은 서로 다른 사고 단계(이해/구조/적용/비교/예방)를 겨냥한다.
+규칙:
+- 입력 문장을 그대로 반복하지 말 것
+- 서로 다른 사고 단계의 Yes/No 질문 5개 생성
+- 이해 / 구조 / 적용 / 비교 / 예방을 각각 겨냥
+- 반드시 번호 형식 1~5
+""", max_wait_seconds=5)
 
-출력 형식:
-1. 질문
-2. 질문
-3. 질문
-4. 질문
-5. 질문
-""")
                 questions = extract_questions(result)
+                if questions and result != "[LOCAL_FALLBACK]":
+                    break
 
-                # AI 실패 시에도 주제 기반 적응형 fallback
+            progress_bar.progress(100)
+            progress_text.markdown("### 탐색 완료! ✨")
+                questions = extract_questions(result if result else "")
                 if not questions or result == "[LOCAL_FALLBACK]":
                     questions = build_fallback_questions(topic)
 
@@ -310,8 +247,9 @@ if st.session_state.stage == "ready":
             st.session_state.stage = "testing"
             st.rerun()
 
+
 # =============================
-# 7) TESTING
+# 8) TESTING
 # =============================
 elif st.session_state.stage == "testing":
     st.subheader(f"주제: {st.session_state.data['topic']}")
@@ -338,8 +276,9 @@ elif st.session_state.stage == "testing":
             st.session_state.stage = "analysis"
             st.rerun()
 
+
 # =============================
-# 8) ANALYSIS
+# 9) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
     st.subheader("최종 진단 리포트")
@@ -349,27 +288,12 @@ elif st.session_state.stage == "analysis":
     if not weak_points:
         st.success("기초 개념이 충분히 잡혀 있습니다.")
     else:
-        with st.spinner("결손 지점 분석 중..."):
-            report = engine.call(f"""
-주제: {st.session_state.data['topic']}
-약한 개념: {weak_points}
-
-다음 형식으로 분석:
-1. 결손 지점
-2. 왜 어려운지
-3. 지금 복습할 기초 개념
-""")
-
-        # AI 실패 시에도 무조건 분석 결과 출력
-        if report == "[LOCAL_FALLBACK]":
-            report = local_root_cause_analysis(
-                st.session_state.data['topic'],
-                weak_points,
-            )
-
+        report = local_root_cause_analysis(
+            st.session_state.data["topic"],
+            weak_points,
+        )
         st.write(report)
 
     if st.button("새 진단"):
         st.session_state.clear()
         st.rerun()
-
