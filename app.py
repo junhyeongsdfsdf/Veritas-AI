@@ -1,10 +1,70 @@
 import random
 from typing import List, Dict
 
-from veritas_dynamic_question_engine import (
-    build_brain_like_questions,
-    generate_weakness_report,
-)
+import random
+from typing import List, Dict
+
+QUESTION_LENSES = {
+    "understanding": [
+        "지금 설명한 내용을 다른 사람에게 다시 설명할 수 있나요?",
+        "핵심 의미와 주변 정보를 구분할 수 있나요?",
+    ],
+    "structure": [
+        "구성 요소의 순서를 알고 있나요?",
+        "중간 단계가 빠지면 어디가 비는지 찾을 수 있나요?",
+    ],
+    "application": [
+        "처음 보는 상황에도 적용할 수 있나요?",
+        "실전 문제에 바로 활용할 수 있나요?",
+    ],
+    "comparison": [
+        "비슷한 개념과 차이를 설명할 수 있나요?",
+        "유사 실수를 구분할 수 있나요?",
+    ],
+    "recovery": [
+        "막혔을 때 어디부터 다시 볼지 알고 있나요?",
+        "다음에 같은 실수를 예방할 수 있나요?",
+    ],
+}
+
+def build_brain_like_questions(user_input: str) -> List[str]:
+    lenses = ["understanding", "structure", "application", "comparison", "recovery"]
+    questions = []
+    for i, lens in enumerate(lenses, 1):
+        q = random.choice(QUESTION_LENSES[lens])
+        questions.append(f"{i}. {q}")
+    return questions
+
+def generate_weakness_report(user_input: str, responses: List[Dict]) -> str:
+    no_answers = [r for r in responses if r["answer"] == "No"]
+
+    if not no_answers:
+        return "기초 이해와 적용력이 안정적입니다."
+
+    weak_parts = []
+    for r in no_answers:
+        q = r["question"]
+        if "차이" in q:
+            weak_parts.append("유사 개념 비교")
+        elif "적용" in q:
+            weak_parts.append("응용 전이")
+        elif "순서" in q:
+            weak_parts.append("구조적 연결")
+        else:
+            weak_parts.append("핵심 개념 이해")
+
+    weak_parts = list(dict.fromkeys(weak_parts))
+
+    return f'''
+1. 현재 부족한 파트
+- {'\n- '.join(weak_parts)}
+
+2. 왜 여기서 막히는가
+- 이해한 내용을 새로운 상황으로 전이하는 힘이 부족합니다.
+
+3. 추천 복습 순서
+- 핵심 의미 → 구조 관계 → 새로운 예시 적용 → 비교 → 스스로 설명
+'''.strip()
 
 # ======================================
 # 1) OPEN-WORLD DIAGNOSTIC REASONING DB
