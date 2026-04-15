@@ -1,7 +1,6 @@
 import re
 import time
 import logging
-import urllib.parse
 from typing import List, Dict
 
 import streamlit as st
@@ -21,22 +20,38 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.stApp {
-    background-color: #0d1117;
-    color: #c9d1d9;
-}
+.stApp { background-color: #0d1117; color: #c9d1d9; }
+
 .main-title {
     color: #58a6ff;
-    font-size: 2.8rem;
+    font-size: 2.7rem;
     font-weight: 900;
     text-align: center;
 }
+
+.big-report-title {
+    color: #58a6ff;
+    font-size: 3rem;
+    font-weight: 900;
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
 .diag-card {
     padding: 1.2rem;
     border: 1px solid #30363d;
     border-radius: 12px;
     margin-bottom: 1rem;
     background:#161b22;
+}
+
+.result-card {
+    padding: 1.4rem;
+    border-radius: 14px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    margin-bottom: 1rem;
+    line-height: 1.7;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -45,172 +60,183 @@ st.markdown("""
 # 2) FALLBACK QUESTION ENGINE
 # =============================
 UNIVERSAL_DIAGNOSTIC_DIMENSIONS = [
-    "핵심 의미 이해",
-    "구조 분해",
-    "원리 설명",
-    "응용 적용",
-    "예방 가능성",
+    "핵심 의미",
+    "구조 이해",
+    "원리 적용",
+    "유사 개념 비교",
+    "재발 방지",
 ]
 
-def infer_input_type(user_input: str) -> str:
-    text = user_input.strip().lower()
 
-    if any(sym in text for sym in ["def ", "for ", "while ", "{", "}", ";"]):
+def infer_input_type(user_input: str) -> str:
+    text = user_input.strip()
+
+    if any(sym in text for sym in ["def ", "for ", "while ", "if ", "{", "}", ";"]):
         return "code"
-    if any(k in text for k in ["error", "bug", "안돼", "왜", "막혀"]):
-        return "problem"
-    if len(text.split()) >= 4:
+
+    if len(text.split()) >= 4 and any(ch in text for ch in [".", ",", "?"]):
         return "sentence"
+
+    if any(k in text.lower() for k in ["error", "bug", "안돼", "왜", "막혀"]):
+        return "problem"
+
     return "concept"
+
 
 def extract_learning_facets(user_input: str) -> List[str]:
     input_type = infer_input_type(user_input)
 
     facet_map = {
         "concept": [
-            "핵심 의미를 설명 가능한지",
-            "세부 구성요소를 구분 가능한지",
-            "왜 그렇게 동작하는지 이해하는지",
-            "새로운 사례에 적용 가능한지",
-            "비슷한 개념과 비교 가능한지",
+            "핵심 개념 정의",
+            "구성 요소",
+            "작동 원리",
+            "응용 방식",
+            "헷갈리는 유사 개념",
         ],
         "code": [
-            "입출력 흐름 추적이 가능한지",
-            "조건/반복 기준을 설명 가능한지",
-            "에러 원인을 재현 가능한지",
-            "유사 코드 수정이 가능한지",
-            "더 나은 구조로 개선 가능한지",
+            "입출력 흐름",
+            "조건/반복",
+            "에러 원인",
+            "수정 능력",
+            "리팩토링",
         ],
         "sentence": [
-            "문장의 의미를 정확히 이해하는지",
-            "구조와 어순을 분석 가능한지",
-            "다른 문맥으로 바꿔 표현 가능한지",
-            "유사 표현과 차이를 구분 가능한지",
-            "새 문장을 직접 만들 수 있는지",
+            "문장 의미",
+            "구조/어순",
+            "문맥 적용",
+            "유사 표현 비교",
+            "직접 생성",
         ],
         "problem": [
-            "문제 원인을 정의 가능한지",
-            "막히는 단계를 특정 가능한지",
-            "해결 시도를 논리적으로 설명 가능한지",
-            "다른 상황에도 적용 가능한지",
-            "재발 방지가 가능한지",
+            "원인 파악",
+            "막힌 단계",
+            "해결 시도",
+            "재적용",
+            "재발 방지",
         ],
     }
 
     return facet_map.get(input_type, UNIVERSAL_DIAGNOSTIC_DIMENSIONS)
 
+
 def build_fallback_questions(topic: str) -> List[str]:
     facets = extract_learning_facets(topic)
 
     templates = [
-        "{idx}. 현재 '{facet}' 부분이 부족하다고 느끼나요?",
-        "{idx}. 이 부분을 다른 사례에도 적용할 수 있나요?",
-        "{idx}. 비슷한 문제가 다시 나오면 스스로 해결 가능한가요?",
-        "{idx}. 유사한 상황에도 그대로 적용 가능한가요?",
-        "{idx}. 다음에는 같은 실수를 예방할 수 있나요?",
+        "{idx}. 이 내용의 '{facet}'를 스스로 설명할 수 있나요?",
+        "{idx}. 실제 다른 상황에서도 '{facet}'를 적용할 수 있나요?",
+        "{idx}. 비슷한 문제에서도 '{facet}' 기준으로 해결 가능하나요?",
+        "{idx}. 헷갈리는 사례와 '{facet}' 차이를 구분할 수 있나요?",
+        "{idx}. 다음에 같은 문제에서 '{facet}' 실수를 막을 수 있나요?",
     ]
 
     return [
-        templates[i].format(idx=i + 1, facet=facet)
-        for i, facet in enumerate(facets[:5])
+        templates[i].format(idx=i + 1, facet=facets[i])
+        for i in range(5)
     ]
+
 
 def extract_questions(raw: str) -> List[str]:
     lines = raw.split("\n")
-    results = []
+    questions = []
 
     for line in lines:
         line = line.strip()
         if re.match(r"^\d+[.)]", line):
-            results.append(line)
+            questions.append(line)
 
-    return results[:5]
+    return questions[:5]
+
 
 # =============================
-# 3) GPT ENGINE
+# 3) OPENAI ENGINE
 # =============================
 class VeritasEngine:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
-        self.model_name = "gpt-5.4"
+        self.model_name = "gpt-5"
 
-    def generate_questions(self, topic: str) -> List[str]:
-        prompt = f"""
-당신은 학습 결손 진단 AI입니다.
+    def generate_questions(self, topic: str, timeout: int = 60) -> List[str]:
+        start = time.time()
 
-입력:
-{topic}
+        while time.time() - start < timeout:
+            try:
+                response = self.client.responses.create(
+                    model=self.model_name,
+                    input=f"""
+사용자 입력: {topic}
 
 규칙:
-- 입력 반복 금지
-- 서로 다른 사고 단계의 Yes/No 질문 5개
-- 이해 / 구조 / 원리 / 응용 / 예방
-- 번호 1~5
-"""
-        response = self.client.responses.create(
-            model=self.model_name,
-            input=prompt,
+- 입력 문장을 반복하지 말 것
+- Yes/No 질문 5개
+- 서로 다른 사고 단계
+- 이해 / 구조 / 적용 / 비교 / 예방
+- 반드시 1~5 번호 형식
+""",
+                )
+
+                text = response.output_text.strip()
+                questions = extract_questions(text)
+
+                if len(questions) == 5:
+                    return questions
+
+            except Exception as e:
+                logger.warning(f"질문 생성 실패: {e}")
+
+            time.sleep(5)
+
+        return build_fallback_questions(topic)
+
+    def generate_report(self, topic: str, weak_points: List[Dict]) -> Dict:
+        weak_text = "\n".join(
+            [f"{w['question']} / 이유:{w['reason']}" for w in weak_points]
         )
 
-        return extract_questions(response.output_text.strip())
+        try:
+            response = self.client.responses.create(
+                model=self.model_name,
+                input=f"""
+주제: {topic}
+사용자가 어려워한 부분:
+{weak_text}
 
-    def generate_report(self, topic: str, weak_points: List[Dict]) -> str:
-        prompt = f"""
-당신은 쪽집개 강사형 AI입니다.
+아래 형식으로 짧고 정확하게 답해.
 
-주제:
-{topic}
+1. 놓친 핵심 개념
+2. 왜 놓쳤는지 설명
+3. 추가로 필요한 부분 3개
+""",
+            )
 
-어려워한 부분:
-{weak_points}
+            text = response.output_text.strip()
+            lines = [x.strip() for x in text.split("\n") if x.strip()]
 
-반드시 아래 3개만 출력:
+            return {
+                "core": lines[0] if len(lines) > 0 else "핵심 개념 연결 부족",
+                "reason": lines[1] if len(lines) > 1 else "세부 개념 연결이 약합니다.",
+                "extra": lines[2:5] if len(lines) >= 5 else [
+                    "기초 정의 다시 보기",
+                    "대표 문제 반복",
+                    "실수 사례 비교",
+                ]
+            }
 
-### 1. 놓친 핵심 개념
-- 3개
+        except Exception:
+            return {
+                "core": "핵심 개념 연결 부족",
+                "reason": "세부 원리와 응용 연결이 약합니다.",
+                "extra": [
+                    "기초 정의 다시 보기",
+                    "대표 문제 반복",
+                    "실수 사례 비교",
+                ]
+            }
 
-### 2. 개념 설명
-- 각 개념을 1줄 설명
-
-### 3. 추가로 필요한 부분
-- 연결 개념 3개
-"""
-        response = self.client.responses.create(
-            model=self.model_name,
-            input=prompt,
-        )
-        return response.output_text.strip()
-
-# =============================
-# 4) DETAIL PAGE
-# =============================
-def render_detail_page(engine):
-    detail = st.query_params.get("detail", "")
-
-    if detail:
-        st.markdown("""
-        <div style="font-size:2.5rem;font-weight:900;color:#58a6ff;">
-        📘 개념 상세 설명
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.caption(f"선택 개념: {detail}")
-
-        response = engine.client.responses.create(
-            model=engine.model_name,
-            input=f"{detail}를 초보자도 이해할 수 있게 핵심만 설명해줘."
-        )
-
-        st.write(response.output_text.strip())
-
-        if st.button("← 리포트로 돌아가기"):
-            st.query_params.clear()
-            st.rerun()
-
-        st.stop()
 
 # =============================
-# 5) SESSION
+# 4) SESSION
 # =============================
 if "stage" not in st.session_state:
     st.session_state.stage = "ready"
@@ -218,11 +244,11 @@ if "data" not in st.session_state:
     st.session_state.data = {}
 
 # =============================
-# 6) API KEY
+# 5) API KEY
 # =============================
-api_key = (
-    st.secrets.get("OPENAI_API_KEY")
-    or st.sidebar.text_input("OPENAI API KEY", type="password")
+api_key = st.secrets.get("OPENAI_API_KEY") or st.sidebar.text_input(
+    "OPENAI API KEY",
+    type="password"
 )
 
 if not api_key:
@@ -230,10 +256,9 @@ if not api_key:
     st.stop()
 
 engine = VeritasEngine(api_key)
-render_detail_page(engine)
 
 # =============================
-# 7) READY
+# 6) READY
 # =============================
 if st.session_state.stage == "ready":
     st.markdown("""
@@ -243,34 +268,36 @@ if st.session_state.stage == "ready":
     </div>
     """, unsafe_allow_html=True)
 
-    topic = st.text_input("학습 주제")
+    topic = st.text_input("학습 주제", placeholder="예: 근의공식, SQL 오류, 영어 문장")
 
     if st.button("빠른 진단 시작"):
         if topic:
             progress_text = st.empty()
             progress_bar = st.progress(0)
+
             progress_text.markdown("### 열심히 탐색중!! 🤗")
 
-            start_time = time.time()
+            found = False
             questions = []
 
+            start_time = time.time()
+
             while time.time() - start_time < 60:
-                progress = int(((time.time() - start_time) / 60) * 100)
+                elapsed = time.time() - start_time
+                progress = min(int((elapsed / 60) * 100), 100)
                 progress_bar.progress(progress)
 
-                try:
-                    questions = engine.generate_questions(topic)
-                    if len(questions) >= 5:
-                        break
-                except Exception as e:
-                    logger.warning(e)
+                questions = engine.generate_questions(topic, timeout=5)
 
-                time.sleep(2)
-
-            if len(questions) < 5:
-                questions = build_fallback_questions(topic)
+                if len(questions) == 5:
+                    found = True
+                    break
 
             progress_bar.progress(100)
+            progress_text.markdown("### 탐색 완료! ✨")
+
+            if not found:
+                questions = build_fallback_questions(topic)
 
             st.session_state.data["topic"] = topic
             st.session_state.data["questions"] = questions
@@ -278,13 +305,13 @@ if st.session_state.stage == "ready":
             st.rerun()
 
 # =============================
-# 8) TESTING
+# 7) TESTING
 # =============================
 elif st.session_state.stage == "testing":
     st.subheader(f"주제: {st.session_state.data['topic']}")
 
     with st.form("test_form"):
-        responses = []
+        responses: List[Dict] = []
 
         for i, q in enumerate(st.session_state.data["questions"]):
             st.markdown(f"<div class='diag-card'><b>{q}</b></div>", unsafe_allow_html=True)
@@ -313,19 +340,10 @@ elif st.session_state.stage == "testing":
             st.rerun()
 
 # =============================
-# 9) ANALYSIS
+# 8) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.markdown("""
-    <div style="
-        font-size: 3rem;
-        font-weight: 900;
-        color: #58a6ff;
-        margin-bottom: 1.5rem;
-    ">
-    진단 결과 😋
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div class='big-report-title'>진단 결과 😋</div>", unsafe_allow_html=True)
 
     weak_points = [
         x for x in st.session_state.data["responses"]
@@ -333,25 +351,35 @@ elif st.session_state.stage == "analysis":
     ]
 
     if not weak_points:
-        st.success("현재 핵심 구조는 충분히 이해하고 있습니다.")
+        st.success("기초 개념이 충분히 잡혀 있습니다.")
     else:
-        report = engine.generate_report(
+        result = engine.generate_report(
             st.session_state.data["topic"],
             weak_points
         )
 
-        lines = report.split("\n")
-        for line in lines:
-            stripped = line.strip()
+        st.markdown(f"""
+        <div class='result-card'>
+        <b>놓친 핵심 개념</b><br>
+        {result["core"]}
+        </div>
+        """, unsafe_allow_html=True)
 
-            if stripped.startswith("- "):
-                concept = stripped[2:].strip()
-                encoded = urllib.parse.quote(concept)
-                st.markdown(f"- [{concept}](?detail={encoded})")
-            else:
-                st.markdown(line)
+        st.markdown(f"""
+        <div class='result-card'>
+        <b>왜 놓쳤는지 설명</b><br>
+        {result["reason"]}
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<div class='result-card'><b>추가로 필요한 부분</b><br>", unsafe_allow_html=True)
+
+        for item in result["extra"]:
+            search_link = f"https://chat.openai.com/?q={item}"
+            st.markdown(f"- [{item}]({search_link})")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
     if st.button("새 진단"):
         st.session_state.clear()
-        st.query_params.clear()
         st.rerun()
