@@ -196,11 +196,11 @@ if st.session_state.stage == "ready":
 
     topic = st.text_input("진단할 학습 주제를 입력하세요", placeholder="예: 탄젠트의 원리, SQL JOIN 연산, 재귀함수...")
 
-    if st.button("전문 진단 엔진 가동"):
+    if st.button("진단 실시"):
         if topic:
             progress_text = st.empty()
             progress_bar = st.progress(0)
-            progress_text.markdown("### 고난도 진단 문항을 설계 중입니다... 🤗")
+            progress_text.markdown("### 진단중입니다🤗")
             start_time, questions = time.time(), []
 
             # 사용자님이 강조하신 60초 사투 루프
