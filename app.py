@@ -149,8 +149,8 @@ class VeritasEngine:
 {topic}
 
 규칙:
-- 사용자의 입력을 그대로 반복 금지
-- 입력 종류를 먼저 추론 (개념 / 코드 / 언어 / 오류 / 문제상황)
+- 입력 문장을 그대로 반복하지 말 것
+- 입력 타입 추론: 개념 / 코드 / 언어 / 오류 / 문제상황
 - 서로 완전히 다른 사고 단계의 질문 5개 생성
 - 이해 / 구조 / 원리 / 응용 / 예방 단계 포함
 - 모든 질문은 Yes/No로 답할 수 있어야 함
@@ -190,6 +190,7 @@ def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
         concepts.append("- 문장 구조 및 문맥")
     if "개념" in weak_text:
         concepts.append("- 핵심 개념 정의")
+
     if not concepts:
         concepts = [
             "- 핵심 정의 복습",
@@ -253,21 +254,33 @@ if st.session_state.stage == "ready":
         if topic:
             progress_text = st.empty()
             progress_bar = st.progress(0)
-
             progress_text.markdown("### 열심히 탐색중!! 🤗")
 
-            for i in range(60):
-                time.sleep(1)
-                progress_bar.progress((i + 1) * 100 // 60)
+            start_time = time.time()
+            questions = []
 
-            try:
-                questions = engine.generate_questions(topic)
-                if len(questions) < 5:
-                    questions = build_fallback_questions(topic)
-            except Exception as e:
-                logger.warning(f"GPT 실패: {e}")
+            while time.time() - start_time < 60:
+                elapsed = time.time() - start_time
+                progress = int((elapsed / 60) * 100)
+                progress_bar.progress(progress)
+
+                try:
+                    questions = engine.generate_questions(topic)
+
+                    # ✅ 찾으면 즉시 이동
+                    if len(questions) >= 5:
+                        break
+
+                except Exception as e:
+                    logger.warning(f"탐색 중 오류: {e}")
+
+                time.sleep(2)
+
+            # ✅ 60초 동안 못 찾았을 때만 fallback
+            if len(questions) < 5:
                 questions = build_fallback_questions(topic)
 
+            progress_bar.progress(100)
             progress_text.markdown("### 탐색 완료! ✨")
 
             st.session_state.data["topic"] = topic
