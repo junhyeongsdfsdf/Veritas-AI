@@ -2,6 +2,7 @@ import re
 import time
 import logging
 from typing import List, Dict
+from urllib.parse import quote
 
 import streamlit as st
 from openai import OpenAI
@@ -63,15 +64,15 @@ st.markdown("""
 
 
 # =============================
-# QUESTION FALLBACK ENGINE
+# QUIZ FALLBACK ENGINE
 # =============================
 def build_fallback_questions(topic: str) -> List[str]:
     return [
-        f"1. {topic}를 다른 사람에게 직접 설명할 수 있나요?",
-        f"2. {topic}의 구조를 단계별로 나눌 수 있나요?",
-        f"3. 새로운 문제에도 {topic}를 적용할 수 있나요?",
-        f"4. 비슷한 개념과 {topic}의 차이를 구분할 수 있나요?",
-        f"5. 다음에 같은 문제가 나와도 혼자 해결할 수 있나요?",
+        f"1. {topic}의 핵심 원리는 반대 상황에서도 동일하게 유지된다. (Yes/No)",
+        f"2. {topic}의 첫 단계가 잘못되어도 최종 결과는 정확할 수 있다. (Yes/No)",
+        f"3. {topic}는 새로운 문제 유형에서도 같은 방식으로 적용 가능하다. (Yes/No)",
+        f"4. {topic}와 유사 개념은 항상 같은 결과를 만든다. (Yes/No)",
+        f"5. {topic}의 예외 상황도 기본 원리만으로 해결 가능하다. (Yes/No)",
     ]
 
 
@@ -119,55 +120,31 @@ def build_smart_diagnosis_from_no(
     extras = []
 
     for item in weak_points:
-        q = item["question"]
-        reason = item.get("reason", "").strip()
+        concept = f"{topic}의 핵심 원리와 예외 처리"
 
-        if "설명" in q:
-            concept = f"{topic}의 핵심 정의"
-            explain = (
-                f"{topic}의 핵심 정의를 자신의 언어로 설명하지 못했다는 것은 "
-                f"단순 암기 수준에 머물러 있다는 뜻입니다. "
-                f"왜 필요한 개념인지, 어떤 문제를 해결하기 위해 등장했는지, "
-                f"실제 어디에 적용되는지까지 연결해서 다시 이해해야 합니다."
-            )
-            extra = "정의 → 예시 → 반례 순서 복습"
+        explanation = (
+            f"{topic} 관련 퀴즈에서 오답이 발생한 것은 "
+            f"핵심 원리 자체보다도 예외 조건, 반례, 응용 조건에서 "
+            f"개념 연결이 약하다는 뜻입니다. "
+            f"특히 왜 이 원리가 성립하는지와 "
+            f"언제 성립하지 않는지를 함께 이해해야 "
+            f"실전 문제에서 흔들리지 않습니다."
+        )
 
-        elif "구조" in q:
-            concept = f"{topic}의 구조적 흐름"
-            explain = (
-                f"{topic}를 이루는 세부 단계의 연결 구조가 약합니다. "
-                f"입력 → 처리 → 결과의 흐름으로 다시 나눠보면 "
-                f"머릿속 구조가 훨씬 명확해집니다."
-            )
-            extra = "구조도 직접 그려보기"
-
-        elif "적용" in q:
-            concept = f"{topic}의 문제 적용력"
-            explain = (
-                f"이미 아는 개념을 새로운 문제에 옮겨 적용하는 힘이 부족합니다. "
-                f"이는 문제 유형별 전이 훈련이 부족할 때 자주 나타나는 패턴입니다."
-            )
-            extra = "유형 문제 3회 반복"
-
-        else:
-            concept = f"{topic}의 핵심 원리"
-            explain = (
-                f"{topic}가 왜 그렇게 동작하는지 원리 중심 이해가 약합니다. "
-                f"과정을 단계별로 다시 추적하며 이유를 설명하는 연습이 필요합니다."
-            )
-            extra = "원리 단계별 추적"
-
-        if reason:
-            explain += f" 특히 사용자가 '{reason}'라고 느낀 부분은 실제 결손 지점일 가능성이 매우 높습니다."
+        extra_topics = [
+            f"{topic} 예외 상황",
+            f"{topic} 반례 분석",
+            f"{topic} 실전 응용 문제"
+        ]
 
         missed.append(f"• {concept}")
-        explanations.append(f"• {explain}")
-        extras.append(f"• {extra}")
+        explanations.append(f"• {explanation}")
+        extras.extend(extra_topics)
 
     return {
-        "놓친개념": "<br>".join(list(dict.fromkeys(missed))),
-        "개념설명": "<br><br>".join(list(dict.fromkeys(explanations))),
-        "추가로 필요한 부분": "<br>".join(list(dict.fromkeys(extras))),
+        "놓친개념": "<br>".join(sorted(set(missed))),
+        "개념설명": "<br><br>".join(sorted(set(explanations))),
+        "추가로 필요한 부분": sorted(set(extras)),
     }
 
 
@@ -208,7 +185,7 @@ if st.session_state.stage == "ready":
 
     topic = st.text_input(
         "학습 주제",
-        placeholder="예: 근의공식, SQL 오류, 영어 문장"
+        placeholder="예: SQL JOIN, 영어 현재완료, 근의공식"
     )
 
     if st.button("빠른 진단 시작"):
@@ -228,12 +205,17 @@ if st.session_state.stage == "ready":
                 progress_bar.progress(progress)
 
                 result = engine.call(f"""
-사용자 입력: {topic}
+사용자 주제: {topic}
+
+역할:
+사용자의 취약 개념을 찾기 위한 OX 퀴즈형 질문 5개 생성
 
 규칙:
-- 서로 다른 사고 단계의 Yes/No 질문 5개
+- Yes/No로 정답 판별 가능한 퀴즈
+- 자기평가 금지
+- 서로 다른 사고 단계
+- 예외 / 반례 / 응용 포함
 - 번호 1~5
-- 입력 문장 반복 금지
 """)
 
                 questions = extract_questions(result)
@@ -278,14 +260,9 @@ elif st.session_state.stage == "testing":
                 key=f"radio_{i}"
             )
 
-            reason = ""
-            if ans == "No":
-                reason = st.text_input(f"막힌 이유 {i+1}", key=f"reason_{i}")
-
             responses.append({
                 "question": q,
-                "answer": ans,
-                "reason": reason
+                "answer": ans
             })
 
         if st.form_submit_button("최종 분석"):
@@ -309,20 +286,32 @@ elif st.session_state.stage == "analysis":
     ]
 
     if not weak_points:
-        st.success("현재 핵심 개념이 안정적으로 잡혀 있습니다.")
+        st.success("현재 핵심 개념과 예외 처리 이해도가 매우 안정적입니다.")
     else:
         result = build_smart_diagnosis_from_no(
             weak_points,
             st.session_state.data["topic"]
         )
 
-        for category in ["놓친개념", "개념설명", "추가로 필요한 부분"]:
+        # 놓친개념 + 개념설명
+        for category in ["놓친개념", "개념설명"]:
             st.markdown(f"""
             <div class='category-card'>
                 <div class='category-title'>{category}</div>
                 <div>{result[category]}</div>
             </div>
             """, unsafe_allow_html=True)
+
+        # 추가 학습 링크
+        st.markdown("""
+        <div class='category-card'>
+            <div class='category-title'>추가로 필요한 부분</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        for extra in result["추가로 필요한 부분"]:
+            link = f"https://chat.openai.com/?q={quote(extra)}"
+            st.markdown(f"- [{extra}]({link})")
 
     if st.button("새 진단"):
         st.session_state.clear()
