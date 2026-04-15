@@ -256,8 +256,8 @@ elif st.session_state.stage == "analysis":
                 학습자가 어려워한 문항: {weak_points}
                 아래 3가지 항목으로만 분석 리포트를 작성하세요. (2번 '왜 어려운지'는 절대 포함하지 마세요)
                 ## 1. 결손 지점
-                ## 3. 놓친 핵심 개념
-                ## 4. 바로 해야 할 학습 액션
+                ## 2. 놓친 핵심 개념
+                ## 3. 바로 해야 할 학습 액션
                 """
                 response = engine.client.responses.create(model=engine.model_name, input=analysis_prompt)
                 report = response.output_text.strip()
