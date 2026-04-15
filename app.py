@@ -298,61 +298,63 @@ elif st.session_state.stage == "testing":
 
 
 # =============================
-# ANALYSIS PAGE (FINAL FIX)
+# ANALYSIS PAGE
 # =============================
-def build_wrong_rate_report(topic: str, responses: List[Dict]) -> Dict:
-    total = len(responses)
-    wrongs = [x for x in responses if x["answer"] == "No"]
+elif st.session_state.stage == "analysis":
+    st.markdown(
+        "<div class='result-title'>진단 결과 😋</div>",
+        unsafe_allow_html=True
+    )
 
-    wrong_count = len(wrongs)
-    wrong_rate = int((wrong_count / total) * 100) if total else 0
+    weak_points = [
+        x for x in st.session_state.data["responses"]
+        if x["answer"] == "No"
+    ]
 
-    # 오답률 기반 학습 상태 진단
-    if wrong_rate == 0:
-        level = "완전 이해 단계"
-        summary = (
-            f"{topic}의 핵심 구조와 적용 흐름이 안정적으로 잡혀 있습니다. "
-            "현재는 개념 부족보다 실전 문제량을 늘려 정확도를 높이는 단계입니다."
-        )
-
-    elif wrong_rate <= 20:
-        level = "부분 보완 단계"
-        summary = (
-            f"{topic}의 전체 개념은 이해하고 있으나 일부 예외 상황이나 "
-            "적용 문제에서 흔들릴 가능성이 있습니다."
-        )
-
-    elif wrong_rate <= 40:
-        level = "핵심 연결 약화 단계"
-        summary = (
-            f"{topic}의 기본 개념은 알고 있지만 개념 간 연결과 문제 적용력이 약합니다. "
-            "오답노트 중심 복습이 가장 효과적인 구간입니다."
-        )
-
-    elif wrong_rate <= 60:
-        level = "응용 취약 단계"
-        summary = (
-            f"{topic}에서 구조 이해보다 암기 위주로 접근했을 가능성이 큽니다. "
-            "실전 응용 문제에서 오답률이 높게 유지될 수 있습니다."
-        )
-
-    elif wrong_rate <= 80:
-        level = "기초 재정비 단계"
-        summary = (
-            f"{topic}의 핵심 원리부터 다시 정리해야 합니다. "
-            "현재 상태에서 응용으로 가면 계속 비슷한 실수를 반복할 확률이 높습니다."
-        )
-
+    if not weak_points:
+        st.success("현재 핵심 개념과 응용 이해도가 매우 안정적입니다.")
     else:
-        level = "처음부터 재학습 단계"
-        summary = (
-            f"{topic}에 대한 개념 구조가 아직 충분히 형성되지 않았습니다. "
-            "처음부터 핵심 원리 → 예제 → 응용 순으로 다시 학습하는 것이 좋습니다."
+        result = build_smart_diagnosis_from_no(
+            weak_points,
+            st.session_state.data["topic"]
         )
 
-    return {
-        "wrong_count": wrong_count,
-        "wrong_rate": wrong_rate,
-        "level": level,
-        "summary": summary,
-    }
+        # 놓친 개념
+        st.markdown(f"""
+        <div class='category-card'>
+            <div class='category-title'>놓친 개념</div>
+            {result["놓친개념"]}
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 개념 설명
+        st.markdown(f"""
+        <div class='category-card'>
+            <div class='category-title'>개념 설명</div>
+            {result["개념설명"]}
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 추가로 필요한 부분 (같은 박스 안에 링크 포함)
+        extra_html = ""
+        for extra in result["추가로 필요한 부분"]:
+            link = f"https://chat.openai.com/?q={quote(extra)}"
+            extra_html += f"""
+            <div style='margin-top:0.7rem;'>
+                <a href="{link}" target="_blank"
+                   style="color:#c9d1d9; text-decoration:none;">
+                   • {extra}
+                </a>
+            </div>
+            """
+
+        st.markdown(f"""
+        <div class='category-card'>
+            <div class='category-title'>추가로 필요한 부분</div>
+            {extra_html}
+        </div>
+        """, unsafe_allow_html=True)
+
+    if st.button("새 진단"):
+        st.session_state.clear()
+        st.rerun()
