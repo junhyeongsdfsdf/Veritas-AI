@@ -136,14 +136,16 @@ class VeritasEngine:
     def generate_questions(self, topic: str) -> List[str]:
         # [사용자 요청] 질문 수준 상향 및 라벨/별표(**) 제거 지시
         prompt = f"""
-        당신은 인지 심리학과 교육 공학을 전공한 전문 평가 위원입니다.
+        당신은 교육심리 전문가이자 명강사입니다.
         주제: {topic}
 
         미션:
-        1. 단순 암기 여부가 아닌, 개념의 본질적인 원리, 인과관계, 제약 조건을 깊이 있게 묻는 **고난도 Yes/No 질문** 5개를 생성하세요.
-        2. 질문의 난이도를 높여 학습자가 자신의 논리적 허점을 스스로 깨닫게 만드세요.
-        3. 문장 앞에 '**이해**', '**구조**', '**응용**'과 같은 라벨이나 별표(**)를 **절대** 붙이지 마세요.
-        4. 오직 '1. [질문 내용]' 형식으로만 출력하세요.
+        1. 사용자가 적은 주제를 잘 파악한 후, 사용자가 어려워하는 부분에 대하여 **고난도 Yes/No 질문** 5개를 생성하세요.
+        2. 질문의 난이도를 낮은단계 2개 높은단계 3개로 부탁할게요.
+        3. 이 질문들을 통해서 알고싶은것은 사용자의 놓친 부분입니다.
+        4. 문장 앞에 '**이해**', '**구조**', '**응용**'과 같은 라벨이나 별표(**)를 **절대** 붙이지 마세요.
+        5. 오직 '1. [질문 내용]' 형식으로만 출력하세요.
+        
 
         출력 예시:
         1. 특정 조건이 변화했을 때 전체 시스템에 미치는 영향을 논리적으로 예측할 수 있나요?
@@ -158,16 +160,16 @@ class VeritasEngine:
 # 4) ANALYSIS ENGINE (1, 3, 4번 전용)
 # ==========================================
 def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
-    """AI 분석 실패 시 로컬에서 1, 3, 4번 항목을 생성합니다."""
+    """AI 분석 실패 시 로컬에서 1, 2, 3번 항목을 생성합니다."""
     concepts = ["- 핵심 메커니즘의 인과관계 재정립", "- 임계 조건 및 반례 데이터 분석", "- 구조적 아키텍처에 대한 심층 복습"]
     return f"""
 ## 1. 결손 지점
 '{topic}'에 대한 심층적 추론 단계에서 사고의 단절이 확인되었습니다.
 
-## 3. 놓친 핵심 개념
+## 2. 놓친 핵심 개념
 {chr(10).join(concepts)}
 
-## 4. 바로 해야 할 학습 액션
+## 3. 바로 해야 할 학습 액션
 - 개념의 정의를 넘어, 작동 원리를 타인에게 완벽히 설명할 수 있을 때까지 복습해보세요.
 """.strip()
 
@@ -263,8 +265,8 @@ elif st.session_state.stage == "analysis":
                 
                 아래 **3가지 항목으로만** 분석 리포트를 작성하세요. (2번 '왜 어려운지'는 절대 포함하지 마세요)
                 ## 1. 결손 지점
-                ## 3. 놓친 핵심 개념
-                ## 4. 바로 해야 할 학습 액션 (각 문장에 챗지피티 검색이 가능하도록 구체적으로 작성)
+                ## 2. 놓친 핵심 개념
+                ## 3. 바로 해야 할 학습 액션 (각 문장에 챗지피티 검색이 가능하도록 구체적으로 작성)
                 """
                 response = engine.client.responses.create(model=engine.model_name, input=analysis_prompt)
                 report = response.output_text.strip()
@@ -274,10 +276,10 @@ elif st.session_state.stage == "analysis":
                 report = local_root_cause_analysis(st.session_state.data["topic"], weak_points)
 
         # 4번 항목의 각 문장에 챗지피티 자동 검색 링크 입히기
-        if "## 4. 바로 해야 할 학습 액션" in report:
-            main_body, action_part = report.split("## 4. 바로 해야 할 학습 액션")
+        if "## 3. 바로 해야 할 학습 액션" in report:
+            main_body, action_part = report.split("## 3. 바로 해야 할 학습 액션")
             st.markdown(main_body)
-            st.markdown("## 4. 바로 해야 할 학습 액션 (클릭 시 ChatGPT 검색 연동)")
+            st.markdown("## 3. 바로 해야 할 학습 액션")
             
             actions = re.split(r'\n|- |\* |\d+\. ', action_part.strip())
             for act in actions:
