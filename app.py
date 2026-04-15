@@ -1,6 +1,7 @@
 import re
 import time
 import logging
+import urllib.parse
 from typing import List, Dict
 
 import streamlit as st
@@ -26,8 +27,8 @@ st.markdown("""
 }
 .main-title {
     color: #58a6ff;
-    font-size: 2.5rem;
-    font-weight: 800;
+    font-size: 2.8rem;
+    font-weight: 900;
     text-align: center;
 }
 .diag-card {
@@ -51,21 +52,16 @@ UNIVERSAL_DIAGNOSTIC_DIMENSIONS = [
     "예방 가능성",
 ]
 
-
 def infer_input_type(user_input: str) -> str:
     text = user_input.strip().lower()
 
     if any(sym in text for sym in ["def ", "for ", "while ", "{", "}", ";"]):
         return "code"
-
     if any(k in text for k in ["error", "bug", "안돼", "왜", "막혀"]):
         return "problem"
-
     if len(text.split()) >= 4:
         return "sentence"
-
     return "concept"
-
 
 def extract_learning_facets(user_input: str) -> List[str]:
     input_type = infer_input_type(user_input)
@@ -79,7 +75,7 @@ def extract_learning_facets(user_input: str) -> List[str]:
             "비슷한 개념과 비교 가능한지",
         ],
         "code": [
-            "입력과 출력 흐름을 추적 가능한지",
+            "입출력 흐름 추적이 가능한지",
             "조건/반복 기준을 설명 가능한지",
             "에러 원인을 재현 가능한지",
             "유사 코드 수정이 가능한지",
@@ -90,7 +86,7 @@ def extract_learning_facets(user_input: str) -> List[str]:
             "구조와 어순을 분석 가능한지",
             "다른 문맥으로 바꿔 표현 가능한지",
             "유사 표현과 차이를 구분 가능한지",
-            "새로운 문장을 직접 만들 수 있는지",
+            "새 문장을 직접 만들 수 있는지",
         ],
         "problem": [
             "문제 원인을 정의 가능한지",
@@ -103,15 +99,14 @@ def extract_learning_facets(user_input: str) -> List[str]:
 
     return facet_map.get(input_type, UNIVERSAL_DIAGNOSTIC_DIMENSIONS)
 
-
 def build_fallback_questions(topic: str) -> List[str]:
     facets = extract_learning_facets(topic)
 
     templates = [
-        "{idx}. 현재 '{facet}' 부분이 핵심적으로 부족하다고 느끼나요?",
-        "{idx}. 이 부분을 다른 사례에서도 설명할 수 있나요?",
-        "{idx}. 비슷한 문제가 다시 나오면 스스로 해결 가능하나요?",
-        "{idx}. 유사하지만 다른 상황에도 그대로 적용 가능하나요?",
+        "{idx}. 현재 '{facet}' 부분이 부족하다고 느끼나요?",
+        "{idx}. 이 부분을 다른 사례에도 적용할 수 있나요?",
+        "{idx}. 비슷한 문제가 다시 나오면 스스로 해결 가능한가요?",
+        "{idx}. 유사한 상황에도 그대로 적용 가능한가요?",
         "{idx}. 다음에는 같은 실수를 예방할 수 있나요?",
     ]
 
@@ -119,7 +114,6 @@ def build_fallback_questions(topic: str) -> List[str]:
         templates[i].format(idx=i + 1, facet=facet)
         for i, facet in enumerate(facets[:5])
     ]
-
 
 def extract_questions(raw: str) -> List[str]:
     lines = raw.split("\n")
@@ -132,9 +126,8 @@ def extract_questions(raw: str) -> List[str]:
 
     return results[:5]
 
-
 # =============================
-# 3) GPT-5.4 ENGINE
+# 3) GPT ENGINE
 # =============================
 class VeritasEngine:
     def __init__(self, api_key: str):
@@ -145,80 +138,84 @@ class VeritasEngine:
         prompt = f"""
 당신은 학습 결손 진단 AI입니다.
 
-사용자 입력:
+입력:
 {topic}
 
 규칙:
-- 입력 문장을 그대로 반복하지 말 것
-- 입력 타입 추론: 개념 / 코드 / 언어 / 오류 / 문제상황
-- 서로 완전히 다른 사고 단계의 질문 5개 생성
-- 이해 / 구조 / 원리 / 응용 / 예방 단계 포함
-- 모든 질문은 Yes/No로 답할 수 있어야 함
-- 반드시 번호 형식 1~5
-
-출력:
-1. ...
-2. ...
-3. ...
-4. ...
-5. ...
+- 입력 반복 금지
+- 서로 다른 사고 단계의 Yes/No 질문 5개
+- 이해 / 구조 / 원리 / 응용 / 예방
+- 번호 1~5
 """
         response = self.client.responses.create(
             model=self.model_name,
             input=prompt,
         )
 
-        text = response.output_text.strip()
-        return extract_questions(text)
+        return extract_questions(response.output_text.strip())
 
+    def generate_report(self, topic: str, weak_points: List[Dict]) -> str:
+        prompt = f"""
+당신은 쪽집개 강사형 AI입니다.
+
+주제:
+{topic}
+
+어려워한 부분:
+{weak_points}
+
+반드시 아래 3개만 출력:
+
+### 1. 놓친 핵심 개념
+- 3개
+
+### 2. 개념 설명
+- 각 개념을 1줄 설명
+
+### 3. 추가로 필요한 부분
+- 연결 개념 3개
+"""
+        response = self.client.responses.create(
+            model=self.model_name,
+            input=prompt,
+        )
+        return response.output_text.strip()
 
 # =============================
-# 4) ANALYSIS ENGINE
+# 4) DETAIL PAGE
 # =============================
-def local_root_cause_analysis(topic: str, weak_points: List[Dict]) -> str:
-    concepts = []
+def render_detail_page(engine):
+    detail = st.query_params.get("detail", "")
 
-    weak_text = " ".join(
-        [f"{x['question']} {x.get('reason', '')}" for x in weak_points]
-    )
+    if detail:
+        st.markdown("""
+        <div style="font-size:2.5rem;font-weight:900;color:#58a6ff;">
+        📘 개념 상세 설명
+        </div>
+        """, unsafe_allow_html=True)
 
-    if "반복" in weak_text:
-        concepts.append("- 반복 구조와 종료 조건")
-    if "조건" in weak_text:
-        concepts.append("- 조건 분기 기준")
-    if "문장" in weak_text:
-        concepts.append("- 문장 구조 및 문맥")
-    if "개념" in weak_text:
-        concepts.append("- 핵심 개념 정의")
+        st.caption(f"선택 개념: {detail}")
 
-    if not concepts:
-        concepts = [
-            "- 핵심 정의 복습",
-            "- 구조 재분해",
-            "- 유사 문제 반복 적용",
-        ]
+        response = engine.client.responses.create(
+            model=engine.model_name,
+            input=f"{detail}를 초보자도 이해할 수 있게 핵심만 설명해줘."
+        )
 
-    return f"""
-## 1. 결손 지점
-'{topic}'에서 특정 사고 단계가 단절되었습니다.
+        st.write(response.output_text.strip())
 
-## 2. 왜 어려운지
-No 응답 패턴상 구조 이해 또는 응용 전환 단계에서 막혔습니다.
+        if st.button("← 리포트로 돌아가기"):
+            st.query_params.clear()
+            st.rerun()
 
-## 3. 지금 복습할 핵심
-{chr(10).join(concepts)}
-""".strip()
-
+        st.stop()
 
 # =============================
 # 5) SESSION
 # =============================
 if "stage" not in st.session_state:
     st.session_state.stage = "ready"
-
 if "data" not in st.session_state:
     st.session_state.data = {}
-
 
 # =============================
 # 6) API KEY
@@ -233,6 +230,7 @@ if not api_key:
     st.stop()
 
 engine = VeritasEngine(api_key)
+render_detail_page(engine)
 
 # =============================
 # 7) READY
@@ -245,10 +243,7 @@ if st.session_state.stage == "ready":
     </div>
     """, unsafe_allow_html=True)
 
-    topic = st.text_input(
-        "학습 주제",
-        placeholder="예: SQL JOIN, 영어 문장, C 포인터, 확률 문제"
-    )
+    topic = st.text_input("학습 주제")
 
     if st.button("빠른 진단 시작"):
         if topic:
@@ -260,34 +255,27 @@ if st.session_state.stage == "ready":
             questions = []
 
             while time.time() - start_time < 60:
-                elapsed = time.time() - start_time
-                progress = int((elapsed / 60) * 100)
+                progress = int(((time.time() - start_time) / 60) * 100)
                 progress_bar.progress(progress)
 
                 try:
                     questions = engine.generate_questions(topic)
-
-                    # ✅ 찾으면 즉시 이동
                     if len(questions) >= 5:
                         break
-
                 except Exception as e:
-                    logger.warning(f"탐색 중 오류: {e}")
+                    logger.warning(e)
 
                 time.sleep(2)
 
-            # ✅ 60초 동안 못 찾았을 때만 fallback
             if len(questions) < 5:
                 questions = build_fallback_questions(topic)
 
             progress_bar.progress(100)
-            progress_text.markdown("### 탐색 완료! ✨")
 
             st.session_state.data["topic"] = topic
             st.session_state.data["questions"] = questions
             st.session_state.stage = "testing"
             st.rerun()
-
 
 # =============================
 # 8) TESTING
@@ -299,10 +287,7 @@ elif st.session_state.stage == "testing":
         responses = []
 
         for i, q in enumerate(st.session_state.data["questions"]):
-            st.markdown(
-                f"<div class='diag-card'><b>{q}</b></div>",
-                unsafe_allow_html=True
-            )
+            st.markdown(f"<div class='diag-card'><b>{q}</b></div>", unsafe_allow_html=True)
 
             ans = st.radio(
                 f"q{i}",
@@ -327,12 +312,20 @@ elif st.session_state.stage == "testing":
             st.session_state.stage = "analysis"
             st.rerun()
 
-
 # =============================
 # 9) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.subheader("핵심 진단 리포트")
+    st.markdown("""
+    <div style="
+        font-size: 3rem;
+        font-weight: 900;
+        color: #58a6ff;
+        margin-bottom: 1.5rem;
+    ">
+    진단 결과 😋
+    </div>
+    """, unsafe_allow_html=True)
 
     weak_points = [
         x for x in st.session_state.data["responses"]
@@ -340,50 +333,25 @@ elif st.session_state.stage == "analysis":
     ]
 
     if not weak_points:
-        st.success("현재 주제의 핵심 개념은 충분히 이해하고 있습니다.")
+        st.success("현재 핵심 구조는 충분히 이해하고 있습니다.")
     else:
-        try:
-            prompt = f"""
-당신은 쪽집개 강사형 학습 진단 AI입니다.
+        report = engine.generate_report(
+            st.session_state.data["topic"],
+            weak_points
+        )
 
-주제:
-{st.session_state.data['topic']}
+        lines = report.split("\n")
+        for line in lines:
+            stripped = line.strip()
 
-사용자가 어려워한 질문:
-{weak_points}
-
-규칙:
-- 길게 설명하지 말 것
-- 핵심만 간결하게
-- 스크롤 최소화
-- 반드시 아래 3개 섹션만 출력
-
-출력 형식:
-
-### 1. 놓친 핵심 개념
-- 핵심 개념 3개
-
-### 2. 개념 설명
-- 각 핵심 개념을 1~2줄로 쉽게 설명
-
-### 3. 추가로 필요한 부분
-- 지금 같이 보면 좋은 연결 개념 3개
-"""
-            response = engine.client.responses.create(
-                model=engine.model_name,
-                input=prompt
-            )
-
-            report = response.output_text.strip()
-
-        except Exception:
-            report = local_root_cause_analysis(
-                st.session_state.data["topic"],
-                weak_points
-            )
-
-        st.markdown(report)
+            if stripped.startswith("- "):
+                concept = stripped[2:].strip()
+                encoded = urllib.parse.quote(concept)
+                st.markdown(f"- [{concept}](?detail={encoded})")
+            else:
+                st.markdown(line)
 
     if st.button("새 진단"):
         st.session_state.clear()
+        st.query_params.clear()
         st.rerun()
