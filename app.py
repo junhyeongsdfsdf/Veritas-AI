@@ -38,12 +38,12 @@ st.markdown("""
     background: #161b22;
 }
 
-.result-box {
-    padding: 1rem;
-    border-radius: 14px;
+.result-card {
     background: #161b22;
     border: 1px solid #30363d;
-    min-height: 230px;
+    border-radius: 14px;
+    padding: 1.2rem;
+    margin-bottom: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -52,15 +52,6 @@ st.markdown("""
 # =============================
 # 2) QUESTION FALLBACK ENGINE
 # =============================
-UNIVERSAL_DIAGNOSTIC_DIMENSIONS = [
-    "핵심 의미",
-    "구조 이해",
-    "원리 적용",
-    "비교 분석",
-    "실수 예방",
-]
-
-
 def infer_input_type(user_input: str) -> str:
     text = user_input.strip().lower()
 
@@ -106,7 +97,14 @@ def extract_learning_facets(user_input: str) -> List[str]:
             "재발 방지",
         ],
     }
-    return facet_map.get(input_type, UNIVERSAL_DIAGNOSTIC_DIMENSIONS)
+
+    return facet_map.get(input_type, [
+        "핵심 의미",
+        "구조 이해",
+        "원리 적용",
+        "비교 분석",
+        "실수 예방",
+    ])
 
 
 def build_fallback_questions(topic: str) -> List[str]:
@@ -139,45 +137,104 @@ def extract_questions(raw: str) -> List[str]:
 
 
 # =============================
-# 3) NO 기반 최종 진단 엔진
+# 3) LONG SMART DIAGNOSIS ENGINE
 # =============================
-def build_smart_diagnosis_from_no(weak_points: List[Dict]) -> Dict:
+def build_smart_diagnosis_from_no(
+    weak_points: List[Dict],
+    topic: str
+) -> Dict:
     weak_text = " ".join(
         [f"{x['question']} {x.get('reason', '')}" for x in weak_points]
     ).lower()
 
-    missed = []
-    explanation = []
-    extra = []
+    missed_concepts = []
+    concept_explanations = []
+    additional_parts = []
+    practical_tips = []
 
-    # 프로그래밍
-    if any(k in weak_text for k in ["코드", "조건", "반복", "python", "java", "c", "에러"]):
-        missed.append("조건 흐름 추적")
-        explanation.append("조건문과 반복문이 실제로 어떤 순서로 실행되는지 추적력이 부족합니다.")
-        extra.extend(["if 조건", "반복 종료", "디버깅 순서"])
+    if any(k in weak_text for k in ["코드", "python", "java", "c", "반복", "조건", "에러"]):
+        missed_concepts.extend([
+            "조건문 흐름 추적",
+            "반복 종료 조건",
+            "에러 재현 사고"
+        ])
 
-    # 수학
-    if any(k in weak_text for k in ["공식", "함수", "방정식", "수학", "근의"]):
-        missed.append("공식 구조 이해")
-        explanation.append("공식의 각 요소가 어떤 역할을 하는지 구조적 연결이 약합니다.")
-        extra.extend(["변수 관계", "대입 순서", "예외 조건"])
+        concept_explanations.extend([
+            "현재 가장 크게 부족한 부분은 코드가 어떤 순서로 실행되는지 머릿속으로 추적하는 힘입니다.",
+            "특히 조건문 내부 분기와 반복문의 종료 시점을 정확히 예측하는 부분에서 흔들리고 있습니다.",
+            "문법보다 중요한 것은 실행 흐름을 한 줄씩 따라가는 사고력입니다."
+        ])
 
-    # 언어
-    if any(k in weak_text for k in ["영어", "문장", "문법", "어순"]):
-        missed.append("문장 구조 분석")
-        explanation.append("문장의 의미보다 구조를 먼저 분석하는 습관이 더 필요합니다.")
-        extra.extend(["어순", "시제", "표현 비교"])
+        additional_parts.extend([
+            "if-else 분기 추적",
+            "for/while 종료 시점",
+            "print 디버깅",
+            "변수 상태 변화",
+            "예외 발생 위치"
+        ])
 
-    # fallback
-    if not missed:
-        missed = ["핵심 개념 연결"]
-        explanation = ["No 응답을 보면 개념 간 연결과 적용력이 아직 약한 상태입니다."]
-        extra = ["기초 정의", "적용 예시", "실수 패턴"]
+        practical_tips.extend([
+            "변수 값이 어떻게 바뀌는지 한 줄씩 적어보세요.",
+            "반복문은 종료 조건부터 먼저 확인하는 습관을 가지세요."
+        ])
+
+    elif any(k in weak_text for k in ["공식", "함수", "방정식", "수학", "근의"]):
+        missed_concepts.extend([
+            "공식 구조 이해",
+            "항의 역할 분석",
+            "대입 순서"
+        ])
+
+        concept_explanations.extend([
+            "공식은 단순 암기가 아니라 각 항의 역할을 이해해야 응용됩니다.",
+            "No 응답 패턴상 어떤 값을 어디에 넣어야 하는지에서 흔들리는 모습이 보입니다.",
+            "문제 조건을 식으로 변환하는 과정에서 사고가 자주 끊기는 유형입니다."
+        ])
+
+        additional_parts.extend([
+            "변수 관계",
+            "문제 조건 식 변환",
+            "예외값 처리",
+            "계산 순서",
+            "단위 확인"
+        ])
+
+        practical_tips.extend([
+            "숫자를 넣기 전에 문자 관계를 먼저 보세요.",
+            "문제 조건을 먼저 식으로 정리하면 실수가 크게 줄어듭니다."
+        ])
+
+    else:
+        missed_concepts.extend([
+            "문장 구조 분석",
+            "핵심 의미 파악",
+            "표현 비교"
+        ])
+
+        concept_explanations.extend([
+            "단어 뜻보다 문장 구조를 먼저 보는 힘이 부족합니다.",
+            "특히 어순과 문맥 역할을 먼저 보지 않으면 응용 문장에서 막힙니다.",
+            "해석보다 구조 분석을 먼저 하는 습관이 필요합니다."
+        ])
+
+        additional_parts.extend([
+            "어순",
+            "시제",
+            "표현 비교",
+            "문맥 의미",
+            "주어 동사 관계"
+        ])
+
+        practical_tips.extend([
+            "문장을 보면 먼저 주어와 동사를 찾으세요.",
+            "비슷한 표현을 비교하며 익히면 훨씬 빨라집니다."
+        ])
 
     return {
-        "missed": missed[:3],
-        "explanation": explanation[:3],
-        "extra": extra[:5]
+        "missed": missed_concepts,
+        "explanation": concept_explanations,
+        "extra": additional_parts,
+        "tips": practical_tips
     }
 
 
@@ -264,7 +321,7 @@ if st.session_state.stage == "ready":
 - 서로 다른 사고 단계 질문 5개
 - Yes/No 질문
 - 번호 1~5
-- 입력 문장 그대로 반복 금지
+- 입력 문장 반복 금지
 """)
 
                 questions = extract_questions(result)
@@ -337,28 +394,40 @@ elif st.session_state.stage == "analysis":
         if x["answer"] == "No"
     ]
 
-    result = build_smart_diagnosis_from_no(weak_points)
+    result = build_smart_diagnosis_from_no(
+        weak_points,
+        st.session_state.data["topic"]
+    )
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("<div class='result-box'><h3>놓친 개념</h3>", unsafe_allow_html=True)
+    st.markdown("## 📌 놓친 개념")
+    with st.container():
+        st.markdown("<div class='result-card'>", unsafe_allow_html=True)
         for item in result["missed"]:
             st.write(f"- {item}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with col2:
-        st.markdown("<div class='result-box'><h3>개념 설명</h3>", unsafe_allow_html=True)
+    st.markdown("## 🧠 개념 설명")
+    with st.container():
+        st.markdown("<div class='result-card'>", unsafe_allow_html=True)
         for item in result["explanation"]:
             st.write(f"- {item}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with col3:
-        st.markdown("<div class='result-box'><h3>추가로 필요한 부분</h3>", unsafe_allow_html=True)
+    st.markdown("## 🚀 추가로 필요한 부분")
+    with st.container():
+        st.markdown("<div class='result-card'>", unsafe_allow_html=True)
         for item in result["extra"]:
             st.markdown(f"- [{item}](?query={item})")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("## 🎯 실전 적용 팁")
+    with st.container():
+        st.markdown("<div class='result-card'>", unsafe_allow_html=True)
+        for item in result["tips"]:
+            st.write(f"- {item}")
         st.markdown("</div>", unsafe_allow_html=True)
 
     if st.button("새 진단"):
         st.session_state.clear()
         st.rerun()
+    
