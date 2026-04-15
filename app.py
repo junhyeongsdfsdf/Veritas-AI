@@ -312,46 +312,119 @@ elif st.session_state.stage == "analysis":
     ]
 
     if not weak_points:
-        st.success("현재 핵심 개념과 응용 이해도가 매우 안정적입니다.")
+        st.success("현재 핵심 개념 이해와 응용력이 매우 안정적입니다.")
     else:
-        result = build_smart_diagnosis_from_no(
-            weak_points,
-            st.session_state.data["topic"]
-        )
+        topic = st.session_state.data["topic"]
 
-        # 놓친 개념
+        # -------------------------
+        # 섬세한 오답 기반 분석
+        # -------------------------
+        missed_concepts = []
+        concept_explanations = []
+        extra_topics = []
+
+        for item in weak_points:
+            q = item["question"]
+
+            if "반례" in q:
+                missed_concepts.append(
+                    f"• {topic}의 반례 및 예외 상황 판단"
+                )
+                concept_explanations.append(
+                    f"""
+• {topic}를 일반 문제에서는 적용할 수 있지만,
+예외 조건이나 반례가 등장했을 때 기존 규칙을 그대로 적용하려는 경향이 있습니다.
+이 부분은 문제를 끝까지 읽지 않고 대표 공식만 적용할 때 자주 발생합니다.
+실전에서는 '항상', '반드시', '모든 경우' 같은 표현이 함정이 됩니다.
+"""
+                )
+                extra_topics += [
+                    f"{topic} 반례 문제",
+                    f"{topic} 함정 유형",
+                    f"{topic} 예외 조건"
+                ]
+
+            elif "조건" in q or "단계" in q:
+                missed_concepts.append(
+                    f"• {topic}의 단계별 조건 변화 추론"
+                )
+                concept_explanations.append(
+                    f"""
+• {topic}의 핵심 절차는 알고 있으나,
+중간 단계가 바뀌었을 때 다음 결과가 어떻게 달라지는지 연결하는 사고가 약합니다.
+특히 순서가 중요한 문제에서 앞 단계 오류가 뒤 결과에 미치는 영향을 추적하는 연습이 필요합니다.
+"""
+                )
+                extra_topics += [
+                    f"{topic} 단계별 추론",
+                    f"{topic} 조건 변화 문제",
+                    f"{topic} 흐름 연결"
+                ]
+
+            else:
+                missed_concepts.append(
+                    f"• {topic} 핵심 원리와 응용 연결"
+                )
+                concept_explanations.append(
+                    f"""
+• {topic}의 정의 자체는 기억하고 있지만,
+왜 그런 결과가 나오는지 원리 수준 설명이 약합니다.
+현재는 공식 기억형 이해에 가까우며,
+조건이 조금만 바뀌어도 정답률이 떨어질 가능성이 큽니다.
+원리 → 구조 → 응용 순으로 다시 복습하면 빠르게 안정됩니다.
+"""
+                )
+                extra_topics += [
+                    f"{topic} 핵심 원리",
+                    f"{topic} 응용 확장",
+                    f"{topic} 오답 패턴"
+                ]
+
+        # -------------------------
+        # 놓친 개념 카드
+        # -------------------------
         st.markdown(f"""
         <div class='category-card'>
             <div class='category-title'>놓친 개념</div>
-            {result["놓친개념"]}
+            {'<br><br>'.join(sorted(set(missed_concepts)))}
         </div>
         """, unsafe_allow_html=True)
 
-        # 개념 설명
+        # -------------------------
+        # 개념 설명 카드
+        # -------------------------
         st.markdown(f"""
         <div class='category-card'>
             <div class='category-title'>개념 설명</div>
-            {result["개념설명"]}
+            {'<br><br>'.join(sorted(set(concept_explanations)))}
         </div>
         """, unsafe_allow_html=True)
 
-        # 추가로 필요한 부분 (링크 포함 + 같은 박스 내부)
+        # -------------------------
+        # 링크 삽입 (중요)
+        # -------------------------
         extra_html = ""
-        
-        for extra in result["추가로 필요한 부분"]:
+        for extra in sorted(set(extra_topics)):
             link = f"https://chat.openai.com/?q={quote(extra)}"
             extra_html += f"""
-            <div style='margin-top:0.7rem;'>
-                <a href="{link}" target="_blank"
-                   style="color:#58a6ff; text-decoration:none; font-weight:600;">
-                   • {extra}
-                </a>
-            </div>
+            <a href="{link}" target="_blank"
+               style="display:block;
+                      margin-top:0.7rem;
+                      color:#58a6ff;
+                      font-weight:700;
+                      text-decoration:none;">
+               • {extra}
+            </a>
             """
-        
+
+        # 반드시 markdown + unsafe_allow_html=True
         st.markdown(f"""
         <div class='category-card'>
             <div class='category-title'>추가로 필요한 부분</div>
             {extra_html}
         </div>
         """, unsafe_allow_html=True)
+
+    if st.button("새 진단"):
+        st.session_state.clear()
+        st.rerun()
