@@ -332,7 +332,7 @@ elif st.session_state.stage == "testing":
 # 9) ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.subheader("최종 진단 리포트")
+    st.subheader("진단 결과☺️")
 
     weak_points = [
         x for x in st.session_state.data["responses"]
@@ -360,13 +360,10 @@ elif st.session_state.stage == "analysis":
 ## 1. 결손 지점
 - 사용자가 정확히 어떤 사고 단계에서 막혔는지
 
-## 2. 왜 어려운지
-- 사용자의 No 응답 이유 기반 인지적 원인 분석
-
-## 3. 놓친 핵심 개념
+## 2. 놓친 핵심 개념
 - 지금 반드시 복습해야 할 세부 개념
 
-## 4. 바로 해야 할 학습 액션
+## 3. 바로 해야 할 학습 액션
 - 다음 30분 동안 무엇을 공부하면 되는지
 """
 
