@@ -6,6 +6,7 @@ from typing import List, Dict
 import streamlit as st
 from openai import OpenAI
 
+
 # =============================
 # CONFIG
 # =============================
@@ -26,8 +27,8 @@ st.markdown("""
 }
 .main-title {
     color: #58a6ff;
-    font-size: 2.7rem;
-    font-weight: 800;
+    font-size: 2.8rem;
+    font-weight: 900;
     text-align: center;
 }
 .result-title {
@@ -36,6 +37,13 @@ st.markdown("""
     font-weight: 900;
     text-align: center;
     margin-bottom: 2rem;
+}
+.diag-card {
+    padding: 1rem;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    background: #161b22;
 }
 .category-card {
     background: #161b22;
@@ -50,75 +58,62 @@ st.markdown("""
     font-weight: 700;
     margin-bottom: 0.7rem;
 }
-.diag-card {
-    padding: 1rem;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    margin-bottom: 1rem;
-    background:#161b22;
-}
 </style>
 """, unsafe_allow_html=True)
 
-# =============================
-# FALLBACK QUESTION ENGINE
-# =============================
-def infer_input_type(user_input: str) -> str:
-    text = user_input.strip()
-    if any(sym in text for sym in ["def ", "for ", "while ", "if ", "{", "}", ";"]):
-        return "code"
-    if any(k in text.lower() for k in ["error", "bug", "왜", "안돼", "막혀"]):
-        return "problem"
-    if len(text.split()) >= 4:
-        return "sentence"
-    return "concept"
 
-
+# =============================
+# QUESTION FALLBACK ENGINE
+# =============================
 def build_fallback_questions(topic: str) -> List[str]:
     return [
         f"1. {topic}를 다른 사람에게 직접 설명할 수 있나요?",
-        f"2. {topic}의 핵심 구조를 구분할 수 있나요?",
-        f"3. 새로운 문제에서도 {topic}를 적용할 수 있나요?",
-        f"4. 비슷한 개념과 {topic}의 차이를 구별할 수 있나요?",
-        f"5. 다음에 같은 문제를 혼자 해결할 수 있나요?",
+        f"2. {topic}의 구조를 단계별로 나눌 수 있나요?",
+        f"3. 새로운 문제에도 {topic}를 적용할 수 있나요?",
+        f"4. 비슷한 개념과 {topic}의 차이를 구분할 수 있나요?",
+        f"5. 다음에 같은 문제가 나와도 혼자 해결할 수 있나요?",
     ]
 
 
 def extract_questions(raw: str) -> List[str]:
     lines = raw.split("\n")
     results = []
+
     for line in lines:
         line = line.strip()
         if re.match(r"^\d+[.)]", line):
             results.append(line)
+
     return results[:5]
 
 
 # =============================
-# GEMINI ENGINE
+# GPT ENGINE
 # =============================
 class VeritasEngine:
     def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
+        self.client = OpenAI(api_key=api_key)
+        self.model_name = "gpt-5"
 
-    def call(self, prompt: str) -> str:
+    def call(self, prompt: str):
         try:
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
+            response = self.client.responses.create(
+                model=self.model_name,
+                input=prompt
+            )
+            return response.output_text.strip()
         except Exception as e:
-            logger.warning(f"Gemini 실패: {e}")
+            logger.warning(f"GPT 실패: {e}")
             return "[LOCAL_FALLBACK]"
 
 
 # =============================
-# 진단 결과 생성 핵심
+# SMART DIAGNOSIS REPORT
 # =============================
-def build_smart_diagnosis_from_no(weak_points: List[Dict], topic: str) -> Dict:
-    """
-    NO 응답만 기반으로 3카테고리 결과 생성
-    절대 KeyError 안 나도록 dict 고정
-    """
+def build_smart_diagnosis_from_no(
+    weak_points: List[Dict],
+    topic: str
+) -> Dict:
     missed = []
     explanations = []
     extras = []
@@ -129,37 +124,50 @@ def build_smart_diagnosis_from_no(weak_points: List[Dict], topic: str) -> Dict:
 
         if "설명" in q:
             concept = f"{topic}의 핵심 정의"
-            explain = f"{topic}의 정의를 자신의 언어로 설명하지 못했다는 것은 개념의 입력은 되었지만 구조화가 안 된 상태입니다. 즉 단순 암기가 아니라 '왜 그렇게 동작하는지'까지 연결 복습이 필요합니다."
-            extra = "정의 → 예시 → 반례 순서로 다시 복습"
+            explain = (
+                f"{topic}의 핵심 정의를 자신의 언어로 설명하지 못했다는 것은 "
+                f"단순 암기 수준에 머물러 있다는 뜻입니다. "
+                f"왜 필요한 개념인지, 어떤 문제를 해결하기 위해 등장했는지, "
+                f"실제 어디에 적용되는지까지 연결해서 다시 이해해야 합니다."
+            )
+            extra = "정의 → 예시 → 반례 순서 복습"
+
         elif "구조" in q:
-            concept = f"{topic}의 구성 요소"
-            explain = f"{topic}를 이루는 세부 요소의 역할 구분이 약합니다. 어떤 요소가 입력이고 어떤 부분이 처리 단계인지 흐름 중심으로 다시 봐야 합니다."
-            extra = "구성 요소별 역할 정리"
+            concept = f"{topic}의 구조적 흐름"
+            explain = (
+                f"{topic}를 이루는 세부 단계의 연결 구조가 약합니다. "
+                f"입력 → 처리 → 결과의 흐름으로 다시 나눠보면 "
+                f"머릿속 구조가 훨씬 명확해집니다."
+            )
+            extra = "구조도 직접 그려보기"
+
         elif "적용" in q:
             concept = f"{topic}의 문제 적용력"
-            explain = f"이미 알고 있는 개념을 새로운 문제에 옮겨 쓰는 전이 능력이 부족합니다. 이는 예제 수가 부족하거나 문제 유형 연결이 덜 된 상태입니다."
-            extra = "유형별 적용 문제 3개 반복"
+            explain = (
+                f"이미 아는 개념을 새로운 문제에 옮겨 적용하는 힘이 부족합니다. "
+                f"이는 문제 유형별 전이 훈련이 부족할 때 자주 나타나는 패턴입니다."
+            )
+            extra = "유형 문제 3회 반복"
+
         else:
             concept = f"{topic}의 핵심 원리"
-            explain = f"{topic}에서 왜 그 방식이 성립하는지 원리 이해가 약합니다. 공식이나 코드의 동작 이유를 단계별로 추적해야 합니다."
-            extra = "원리 흐름 다시 추적"
+            explain = (
+                f"{topic}가 왜 그렇게 동작하는지 원리 중심 이해가 약합니다. "
+                f"과정을 단계별로 다시 추적하며 이유를 설명하는 연습이 필요합니다."
+            )
+            extra = "원리 단계별 추적"
 
         if reason:
-            explain += f" 사용자가 직접 '{reason}' 라고 느낀 부분은 실제 결손 포인트일 가능성이 높습니다."
+            explain += f" 특히 사용자가 '{reason}'라고 느낀 부분은 실제 결손 지점일 가능성이 매우 높습니다."
 
         missed.append(f"• {concept}")
         explanations.append(f"• {explain}")
         extras.append(f"• {extra}")
 
-    # 중복 제거
-    missed = list(dict.fromkeys(missed))
-    explanations = list(dict.fromkeys(explanations))
-    extras = list(dict.fromkeys(extras))
-
     return {
-        "놓친개념": "<br>".join(missed),
-        "개념설명": "<br><br>".join(explanations),
-        "추가로 필요한 부분": "<br>".join(extras)
+        "놓친개념": "<br>".join(list(dict.fromkeys(missed))),
+        "개념설명": "<br><br>".join(list(dict.fromkeys(explanations))),
+        "추가로 필요한 부분": "<br>".join(list(dict.fromkeys(extras))),
     }
 
 
@@ -171,47 +179,82 @@ if "stage" not in st.session_state:
 if "data" not in st.session_state:
     st.session_state.data = {}
 
+
 # =============================
 # API KEY
 # =============================
-api_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("GEMINI API KEY", type="password")
+api_key = st.secrets.get("OPENAI_API_KEY") or st.sidebar.text_input(
+    "OPENAI API KEY",
+    type="password"
+)
 
 if not api_key:
-    st.warning("GEMINI API 키를 입력하세요.")
+    st.warning("OPENAI API 키를 입력하세요.")
     st.stop()
 
 engine = VeritasEngine(api_key)
+
 
 # =============================
 # READY
 # =============================
 if st.session_state.stage == "ready":
     st.markdown("""
-    <div style='position: relative; display: inline-block; width: 100%; text-align: center;'>
+    <div style='position: relative; display: inline-block; width:100%; text-align:center;'>
         <div class='main-title'>Veritas AI</div>
-        <div style='position: absolute; right: 28%; bottom: -8px; font-size: 0.8rem; color: #8b949e;'>by Jun</div>
+        <div style='font-size:0.9rem; color:#8b949e;'>by Jun</div>
     </div>
     """, unsafe_allow_html=True)
 
-    topic = st.text_input("학습 주제", placeholder="예: 근의공식, SQL 오류, 영어 문장")
+    topic = st.text_input(
+        "학습 주제",
+        placeholder="예: 근의공식, SQL 오류, 영어 문장"
+    )
 
     if st.button("빠른 진단 시작"):
         if topic:
-            with st.spinner("열심히 탐색중!! 🤗"):
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+
+            progress_text.markdown("### 열심히 탐색중!! 🤗")
+
+            result = None
+            found = False
+            start_time = time.time()
+
+            while time.time() - start_time < 60:
+                elapsed = time.time() - start_time
+                progress = min(int((elapsed / 60) * 100), 100)
+                progress_bar.progress(progress)
+
                 result = engine.call(f"""
 사용자 입력: {topic}
-서로 다른 사고 단계의 Yes/No 질문 5개 생성
-번호 1~5 필수
+
+규칙:
+- 서로 다른 사고 단계의 Yes/No 질문 5개
+- 번호 1~5
+- 입력 문장 반복 금지
 """)
+
                 questions = extract_questions(result)
 
-                if not questions or result == "[LOCAL_FALLBACK]":
-                    questions = build_fallback_questions(topic)
+                if len(questions) >= 5:
+                    found = True
+                    break
+
+                time.sleep(3)
+
+            progress_bar.progress(100)
+            progress_text.markdown("### 탐색 완료! ✨")
+
+            if not found:
+                questions = build_fallback_questions(topic)
 
             st.session_state.data["topic"] = topic
             st.session_state.data["questions"] = questions
             st.session_state.stage = "testing"
             st.rerun()
+
 
 # =============================
 # TESTING
@@ -223,13 +266,16 @@ elif st.session_state.stage == "testing":
         responses = []
 
         for i, q in enumerate(st.session_state.data["questions"]):
-            st.markdown(f"<div class='diag-card'><b>{q}</b></div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='diag-card'><b>{q}</b></div>",
+                unsafe_allow_html=True
+            )
+
             ans = st.radio(
                 f"q{i}",
                 ["Yes", "No"],
                 horizontal=True,
-                label_visibility="collapsed",
-                key=f"radio_{i}",
+                key=f"radio_{i}"
             )
 
             reason = ""
@@ -247,11 +293,15 @@ elif st.session_state.stage == "testing":
             st.session_state.stage = "analysis"
             st.rerun()
 
+
 # =============================
 # ANALYSIS
 # =============================
 elif st.session_state.stage == "analysis":
-    st.markdown("<div class='result-title'>진단 결과 😋</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='result-title'>진단 결과 😋</div>",
+        unsafe_allow_html=True
+    )
 
     weak_points = [
         x for x in st.session_state.data["responses"]
@@ -259,7 +309,7 @@ elif st.session_state.stage == "analysis":
     ]
 
     if not weak_points:
-        st.success("현재는 핵심 개념이 안정적으로 잡혀 있습니다.")
+        st.success("현재 핵심 개념이 안정적으로 잡혀 있습니다.")
     else:
         result = build_smart_diagnosis_from_no(
             weak_points,
